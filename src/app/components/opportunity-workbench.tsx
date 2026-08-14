@@ -534,32 +534,34 @@ export default function OpportunityWorkbench() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as {
-          stage?: Stage;
-          profile?: CompanyProfile;
-          selectedOpportunityId?: string;
-          checklist?: Record<string, boolean>;
-          sourceEvidence?: string[];
-        };
-        if (parsed.profile) setProfile(parsed.profile);
-        if (parsed.stage) setStage(parsed.stage);
-        if (parsed.selectedOpportunityId) setSelectedOpportunityId(parsed.selectedOpportunityId);
-        if (parsed.checklist) setChecklist(parsed.checklist);
-        if (parsed.sourceEvidence) setSourceEvidence(parsed.sourceEvidence);
+    const timeout = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as {
+            stage?: Stage;
+            profile?: CompanyProfile;
+            selectedOpportunityId?: string;
+            checklist?: Record<string, boolean>;
+            sourceEvidence?: string[];
+          };
+          if (parsed.profile) setProfile(parsed.profile);
+          if (parsed.stage) setStage(parsed.stage);
+          if (parsed.selectedOpportunityId) setSelectedOpportunityId(parsed.selectedOpportunityId);
+          if (parsed.checklist) setChecklist(parsed.checklist);
+          if (parsed.sourceEvidence) setSourceEvidence(parsed.sourceEvidence);
+        }
+      } catch {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } finally {
+        setHydrated(true);
       }
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } finally {
-      setHydrated(true);
-    }
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    setSaved(false);
     const timeout = window.setTimeout(() => {
       window.localStorage.setItem(
         STORAGE_KEY,
