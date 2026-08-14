@@ -658,7 +658,7 @@ function toMatchingProfile(profile: CompanyProfile): MatchingCompanyProfile {
 function mapRankedResults(profile: CompanyProfile): RankedOpportunityCard[] {
   const displayById = new Map(OPPORTUNITIES.map((item) => [item.id, item]));
   return rankOpportunities(toMatchingProfile(profile), MATCHING_OPPORTUNITIES)
-    .filter((result) => result.decision !== "Skip" && (result.score.total >= 35 || result.decision === "Partner-dependent"))
+    .filter((result) => result.decision !== "Skip" && result.score.total >= 35)
     .map((result: MatchResult) => {
       const display = displayById.get(result.opportunityId);
       if (!display) throw new Error(`Missing display details for ${result.opportunityId}`);

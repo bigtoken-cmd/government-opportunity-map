@@ -27,6 +27,9 @@ export function runOpportunityMatchingAssertions(): void {
   const partner = matchOpportunity(healthWithVerifiedSmallBusiness, demoOpportunities[5]);
   assert(partner.decision === "Partner-dependent", "partner-remediable clearance should produce Partner-dependent");
 
+  const irrelevantPartner = matchOpportunity(water, demoOpportunities[5]);
+  assert(irrelevantPartner.decision === "Skip", "a partner path must not rescue a thematically weak match");
+
   const ineligible = matchOpportunity(demoCompanyProfiles[0], demoOpportunities[4]);
   assert(ineligible.decision === "Skip", "incompatible applicant type is a strict disqualifier");
 

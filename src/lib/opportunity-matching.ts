@@ -149,11 +149,11 @@ function matchedGroups(company: CompanyProfile, opportunity: Opportunity): strin
 
 function decide(input: { hasHardFailure: boolean; partnerRequired: boolean; unknownCriticalFacts: readonly string[]; score: number; groups: number }): DecisionLabel {
   if (input.hasHardFailure) return "Skip";
+  if (input.score < 35 || input.groups < 2) return "Skip";
   if (input.partnerRequired) return "Partner-dependent";
   if (input.unknownCriticalFacts.length) return "Verify first";
-  if (input.score >= 70 && input.groups >= 2) return "Pursue now";
-  if (input.score >= 35) return "Watch";
-  return "Skip";
+  if (input.score >= 70) return "Pursue now";
+  return "Watch";
 }
 
 /** Sorts by fit score, then deadline only as the tie-breaker, then stable opportunity ID. */
