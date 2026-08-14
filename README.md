@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Government Opportunity Map
 
-## Getting Started
+A founder-first product that turns a verified company profile into defensible government opportunities, clear next actions, and a persistent application workspace.
 
-First, run the development server:
+## Core journey
+
+1. Add a public company website, one PDF, or manual company text.
+2. Review the extracted company profile and answer only critical missing questions.
+3. Search official government sources through isolated server-side adapters.
+4. Apply deterministic disqualifiers and transparent matching rules.
+5. Review up to five defensible routes, or an honest no-strong-match result.
+6. Open one application workspace with source-backed prefilled fields and a persistent checklist.
+
+## Core sources
+
+- Grants.gov for current and forecasted opportunities
+- USAspending for historical awards and government-customer evidence
+
+Current opportunities and historical awards are always labeled separately. This product is a research aid, not a definitive eligibility determination.
+
+## Stack
+
+- Next.js 16 and TypeScript
+- Cloudflare Workers through the OpenNext adapter
+- Cloudflare D1 for founder workspaces and checklist persistence
+- Cloudflare R2 only if private raw-document retention becomes necessary
+- OpenAI Responses API with strict structured outputs for profile extraction and grounded wording
+- Bundled same-day official fixtures for the five supplied test cases
+
+## Local development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Cloudflare-runtime preview:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run preview
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Deployment:
 
-## Learn More
+```bash
+npm run deploy
+```
 
-To learn more about Next.js, take a look at the following resources:
+Never commit API keys or Cloudflare secrets. Use local environment files and Cloudflare environment bindings.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Ownership
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Jacob: founder-facing UI, profile review, application workspace presentation, deployment, browser QA, and merges
+- Lincoln: source adapters, normalization, terminology, hard checks, matching, history, persistence logic, and backend tests
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `AGENTS.md` before using a coding agent.
