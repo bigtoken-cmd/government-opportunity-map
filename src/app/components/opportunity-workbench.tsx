@@ -931,69 +931,70 @@ export default function OpportunityWorkbench() {
   const completedCount = INITIAL_CHECKLIST.filter((item) => checklist[item.id]).length;
 
   useEffect(() => {
-    if (stage !== "results") {
-      setGrantsHealth({ status: "idle", message: "" });
-      setSpendingHealth({ status: "idle", message: "" });
-      return;
-    }
+    if (stage !== "results") return;
 
     const controller = new AbortController();
-    const currentRecord = matches.find((item) => item.sourceKind === "Current opportunity");
-    if (currentRecord) {
-      const opportunityNumber = currentRecord.opportunityNumber.split(" · ")[0];
-      setGrantsHealth({ status: "checking", message: `Checking ${opportunityNumber} against the live Grants.gov catalog…` });
-      void fetch("/api/sources/grants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunityNumber }),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          if (!response.ok) throw new Error("Source route failed");
-          const result = (await response.json()) as GrantsSourceResponse;
-          const record = result.records?.[0];
-          const status = result.sourceStatus ?? "unavailable";
-          const message =
-            status === "live" && record
-              ? `Live Grants.gov check: ${record.opportunityNumber ?? opportunityNumber} is ${record.status ?? "listed"}${record.closeDate ? `; catalog close date ${record.closeDate}` : ""}.`
-              : result.warning ?? "Live catalog check returned no validated record; the audited snapshot remains labeled.";
-          setGrantsHealth({ status, message });
+    const sourceCheckTimer = window.setTimeout(() => {
+      const currentRecord = matches.find((item) => item.sourceKind === "Current opportunity");
+      if (currentRecord) {
+        const opportunityNumber = currentRecord.opportunityNumber.split(" · ")[0];
+        setGrantsHealth({ status: "checking", message: `Checking ${opportunityNumber} against the live Grants.gov catalog…` });
+        void fetch("/api/sources/grants", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ opportunityNumber }),
+          signal: controller.signal,
         })
-        .catch((error: unknown) => {
-          if (error instanceof DOMException && error.name === "AbortError") return;
-          setGrantsHealth({ status: "unavailable", message: "The browser could not complete the live catalog check. The audited snapshot remains labeled." });
-        });
-    } else {
-      setGrantsHealth({ status: "idle", message: "No current notice was ranked, so no live opportunity status is implied." });
-    }
+          .then(async (response) => {
+            if (!response.ok) throw new Error("Source route failed");
+            const result = (await response.json()) as GrantsSourceResponse;
+            const record = result.records?.[0];
+            const status = result.sourceStatus ?? "unavailable";
+            const message =
+              status === "live" && record
+                ? `Live Grants.gov check: ${record.opportunityNumber ?? opportunityNumber} is ${record.status ?? "listed"}${record.closeDate ? `; catalog close date ${record.closeDate}` : ""}.`
+                : result.warning ?? "Live catalog check returned no validated record; the audited snapshot remains labeled.";
+            setGrantsHealth({ status, message });
+          })
+          .catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            setGrantsHealth({ status: "unavailable", message: "The browser could not complete the live catalog check. The audited snapshot remains labeled." });
+          });
+      } else {
+        setGrantsHealth({ status: "idle", message: "No current notice was ranked, so no live opportunity status is implied." });
+      }
 
-    if (profileKey === "healthcare") {
-      setSpendingHealth({ status: "checking", message: "Checking USAspending.gov for same-program historical context…" });
-      void fetch("/api/sources/usaspending", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assistanceListing: HEALTHCARE_HISTORY.assistanceListing }),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          if (!response.ok) throw new Error("Source route failed");
-          const result = (await response.json()) as SpendingSourceResponse;
-          const status = result.sourceStatus ?? "unavailable";
-          const message =
-            status === "live"
-              ? `Live USAspending query validated ${result.records?.length ?? 0} business prime award record${result.records?.length === 1 ? "" : "s"} with primary Assistance Listing ${HEALTHCARE_HISTORY.assistanceListing}.`
-              : result.warning ?? "Historical source check returned no validated records; the audited snapshot remains labeled.";
-          setSpendingHealth({ status, message });
+      if (profileKey === "healthcare") {
+        setSpendingHealth({ status: "checking", message: "Checking USAspending.gov for same-program historical context…" });
+        void fetch("/api/sources/usaspending", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assistanceListing: HEALTHCARE_HISTORY.assistanceListing }),
+          signal: controller.signal,
         })
-        .catch((error: unknown) => {
-          if (error instanceof DOMException && error.name === "AbortError") return;
-          setSpendingHealth({ status: "unavailable", message: "The browser could not complete the live historical check. The audited snapshot remains labeled." });
-        });
-    } else {
-      setSpendingHealth({ status: "idle", message: "" });
-    }
+          .then(async (response) => {
+            if (!response.ok) throw new Error("Source route failed");
+            const result = (await response.json()) as SpendingSourceResponse;
+            const status = result.sourceStatus ?? "unavailable";
+            const message =
+              status === "live"
+                ? `Live USAspending query validated ${result.records?.length ?? 0} business prime award record${result.records?.length === 1 ? "" : "s"} with primary Assistance Listing ${HEALTHCARE_HISTORY.assistanceListing}.`
+                : result.warning ?? "Historical source check returned no validated records; the audited snapshot remains labeled.";
+            setSpendingHealth({ status, message });
+          })
+          .catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            setSpendingHealth({ status: "unavailable", message: "The browser could not complete the live historical check. The audited snapshot remains labeled." });
+          });
+      } else {
+        setSpendingHealth({ status: "idle", message: "" });
+      }
+    }, 0);
 
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(sourceCheckTimer);
+      controller.abort();
+    };
   }, [matches, profileKey, stage]);
 
   function resetWorkspace() {
