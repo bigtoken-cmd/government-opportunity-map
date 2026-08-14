@@ -49,7 +49,7 @@ export function evaluateEligibility(company: CompanyProfile, opportunity: Opport
     field: string,
     profileValues: readonly string[],
     requiredValues: readonly string[] | undefined,
-    partnerKey?: "clearances" | "certifications" | "geography",
+    partnerKey?: "applicantType" | "legalEntityType" | "clearances" | "certifications" | "geography",
   ) => {
     if (!requiredValues?.length) return;
     const unknown =
@@ -66,8 +66,8 @@ export function evaluateEligibility(company: CompanyProfile, opportunity: Opport
     }
   };
 
-  listCheck("applicant type", company.applicantTypes, requirements.applicantTypes);
-  listCheck("legal entity type", company.legalEntityTypes, requirements.legalEntityTypes);
+  listCheck("applicant type", company.applicantTypes, requirements.applicantTypes, "applicantType");
+  listCheck("legal entity type", company.legalEntityTypes, requirements.legalEntityTypes, "legalEntityType");
   add(checkBoolean("SAM registration", company.samRegistration, requirements.samRegistration));
   add(checkBoolean("UEI", company.uei, requirements.uei));
   add(checkBoolean("US entity", company.usEntity, requirements.usEntity));

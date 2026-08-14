@@ -1,12 +1,19 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { rankOpportunities } from "@/lib/opportunity-matching";
+import type {
+  CompanyProfile as MatchingCompanyProfile,
+  MatchResult,
+  Opportunity as MatchingOpportunity,
+  RegistrationState,
+} from "@/lib/opportunity-types";
 
 type Stage = "intake" | "review" | "results" | "workspace";
 type IntakeMethod = "website" | "document" | "manual";
 type DemoKey = "healthcare" | "manufacturing" | "water" | "cyber" | "consumer";
 type FitTier = "Likely Fit" | "Potential Fit" | "Adjacent";
-type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch";
+type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch" | "Skip";
 
 type CompanyProfile = {
   demoKey: DemoKey | "custom";
@@ -48,6 +55,11 @@ type OpportunityCard = {
   concerns: string[];
   nextAction: string;
   applicationFields: Array<{ label: string; profileKey?: keyof CompanyProfile; note?: string }>;
+};
+
+type RankedOpportunityCard = OpportunityCard & {
+  score: number;
+  eligibilityChecks: string[];
 };
 
 type WebsiteResponse = {
@@ -371,6 +383,306 @@ const OPPORTUNITIES: OpportunityCard[] = [
   },
 ];
 
+function createMatchingOpportunity(
+  id: string,
+  details: Omit<MatchingOpportunity, "id" | "title" | "agency" | "source">,
+): MatchingOpportunity {
+  const display = OPPORTUNITIES.find((item) => item.id === id);
+  if (!display) throw new Error(`Missing display record for ${id}`);
+  return {
+    id,
+    title: display.title,
+    agency: display.agency,
+    source: {
+      sourceId: display.opportunityNumber,
+      sourceName: display.sourceLabel,
+      sourceUrl: display.sourceUrl,
+      retrievedAt: "2026-08-14T21:00:00.000Z",
+      factState: "current",
+      snapshotStatus: "cached_official_snapshot",
+      note:
+        display.sourceKind === "Program route"
+          ? "Official program page snapshot. This is not an active funding notice."
+          : "Official opportunity snapshot. Recheck the live record before acting.",
+    },
+    ...details,
+  };
+}
+
+const MATCHING_OPPORTUNITIES: readonly MatchingOpportunity[] = [
+  createMatchingOpportunity("grants-pa-27-100", {
+    recordKind: "opportunity",
+    opportunityStatus: "open",
+    deadline: "2027-04-05T23:59:59Z",
+    missionAreas: ["healthcare delivery", "biomedical research"],
+    exactTerms: ["healthcare", "small business R&D"],
+    controlledConcepts: ["commercialization", "hospital innovation"],
+    technologyAndRd: ["software R&D", "clinical validation"],
+    customerUses: ["hospital operations"],
+    geographies: ["United States"],
+    eligibility: {
+      applicantTypes: ["small business"],
+      usEntity: true,
+      smallBusiness: true,
+    },
+  }),
+  createMatchingOpportunity("grants-rfa-rm-27-013", {
+    recordKind: "opportunity",
+    opportunityStatus: "open",
+    deadline: "2026-10-19T23:59:59Z",
+    missionAreas: ["healthcare delivery", "precision medicine"],
+    exactTerms: ["artificial intelligence", "multimodal imaging"],
+    controlledConcepts: ["clinical decision support", "health data"],
+    technologyAndRd: ["artificial intelligence", "clinical validation"],
+    customerUses: ["health systems"],
+    geographies: ["United States"],
+    eligibility: {
+      applicantTypes: ["small business", "for-profit"],
+      samRegistration: true,
+      uei: true,
+      usEntity: true,
+    },
+  }),
+  createMatchingOpportunity("nsf-seed-route", {
+    recordKind: "program",
+    opportunityStatus: "program",
+    missionAreas: ["technology commercialization"],
+    exactTerms: ["high-risk R&D"],
+    controlledConcepts: ["technical innovation"],
+    technologyAndRd: ["research and development"],
+    customerUses: ["commercialization"],
+    geographies: ["United States"],
+    eligibility: {
+      applicantTypes: ["small business"],
+      usEntity: true,
+      smallBusiness: true,
+    },
+  }),
+  createMatchingOpportunity("grants-pd-19-088y", {
+    recordKind: "opportunity",
+    opportunityStatus: "open",
+    missionAreas: ["advanced manufacturing", "aerospace"],
+    exactTerms: ["advanced manufacturing"],
+    controlledConcepts: ["lightweight components", "manufacturing innovation"],
+    technologyAndRd: ["materials R&D", "manufacturing process R&D"],
+    customerUses: ["aerospace manufacturing"],
+    geographies: ["United States"],
+    eligibility: {
+      samRegistration: true,
+      uei: true,
+    },
+  }),
+  createMatchingOpportunity("grants-r26as00079", {
+    recordKind: "opportunity",
+    opportunityStatus: "open",
+    deadline: "2026-08-26T23:59:59Z",
+    missionAreas: ["water resilience", "municipal infrastructure"],
+    exactTerms: ["water reuse", "municipal water"],
+    controlledConcepts: ["water efficiency", "public infrastructure"],
+    technologyAndRd: ["sensor R&D", "water analytics"],
+    customerUses: ["municipal utilities"],
+    geographies: ["Utah", "United States"],
+    eligibility: {
+      applicantTypes: ["public water entity", "municipality", "tribe", "water district"],
+      samRegistration: true,
+      uei: true,
+      partnerMaySatisfy: ["applicantType"],
+    },
+  }),
+  createMatchingOpportunity("dhs-sbir-route", {
+    recordKind: "program",
+    opportunityStatus: "program",
+    missionAreas: ["cybersecurity", "homeland security"],
+    exactTerms: ["threat detection", "small business innovation"],
+    controlledConcepts: ["cyber resilience", "federal security"],
+    technologyAndRd: ["cybersecurity R&D", "artificial intelligence"],
+    customerUses: ["federal agencies", "small organizations"],
+    geographies: ["United States"],
+    eligibility: {
+      applicantTypes: ["small business"],
+      samRegistration: true,
+      uei: true,
+      usEntity: true,
+      smallBusiness: true,
+    },
+  }),
+];
+
+function hasAny(text: string, terms: readonly string[]) {
+  return terms.some((term) => text.includes(term));
+}
+
+function registrationState(value: string): RegistrationState {
+  const normalized = value.trim().toLowerCase();
+  if (/^(yes|active|registered|confirmed)$/.test(normalized)) return "yes";
+  if (/^(no|inactive|not registered)$/.test(normalized)) return "no";
+  return "unknown";
+}
+
+function parseTargetAmount(value: string): MatchingCompanyProfile["targetAmount"] {
+  const amounts = [...value.matchAll(/\$?\s*([\d.]+)\s*([km])/gi)].map((match) => {
+    const multiplier = match[2].toLowerCase() === "m" ? 1_000_000 : 1_000;
+    return Number(match[1]) * multiplier;
+  });
+  if (!amounts.length) return undefined;
+  return {
+    min: Math.min(...amounts),
+    max: Math.max(...amounts),
+    currency: "USD",
+  };
+}
+
+function toMatchingProfile(profile: CompanyProfile): MatchingCompanyProfile {
+  const text = [
+    profile.description,
+    profile.industry,
+    profile.technology,
+    profile.useOfFunds,
+    profile.customers,
+    profile.researchActivities,
+  ]
+    .join(" ")
+    .toLowerCase();
+  const missionAreas: string[] = [];
+  const exactTerms: string[] = [];
+  const controlledConcepts: string[] = [];
+  const technologyAndRd: string[] = [];
+  const customerUses: string[] = [];
+  const operatingGeographies: string[] = [];
+  const add = (target: string[], value: string) => {
+    if (!target.includes(value)) target.push(value);
+  };
+  const hasResearch = /r&d|research|product development|technical development/.test(text) &&
+    !/no clear federal r&d|no research/.test(text);
+
+  if (hasAny(text, ["healthcare", "hospital", "nurse", "clinical", "patient"])) {
+    add(missionAreas, "healthcare delivery");
+    add(missionAreas, "biomedical research");
+    add(exactTerms, "healthcare");
+    add(controlledConcepts, "hospital innovation");
+    add(technologyAndRd, "software R&D");
+    add(technologyAndRd, "clinical validation");
+    add(customerUses, "hospital operations");
+    add(customerUses, "health systems");
+  }
+  if (hasAny(text, ["artificial intelligence", "machine learning", " ai ", "ai-powered"])) {
+    add(exactTerms, "artificial intelligence");
+    add(technologyAndRd, "artificial intelligence");
+  }
+  if (hasAny(text, ["advanced manufacturing", "aerospace", "lightweight component"])) {
+    add(missionAreas, "advanced manufacturing");
+    add(missionAreas, "aerospace");
+    add(exactTerms, "advanced manufacturing");
+    add(controlledConcepts, "lightweight components");
+    add(controlledConcepts, "manufacturing innovation");
+    add(technologyAndRd, "materials R&D");
+    add(technologyAndRd, "manufacturing process R&D");
+    add(customerUses, "aerospace manufacturing");
+  }
+  if (hasAny(text, ["municipal water", "water loss", "water sensor", "water infrastructure"])) {
+    add(missionAreas, "water resilience");
+    add(missionAreas, "municipal infrastructure");
+    add(exactTerms, "municipal water");
+    add(controlledConcepts, "water efficiency");
+    add(controlledConcepts, "public infrastructure");
+    add(technologyAndRd, "sensor R&D");
+    add(technologyAndRd, "water analytics");
+    add(customerUses, "municipal utilities");
+  }
+  if (hasAny(text, ["cybersecurity", "threat detection", "security analytics"])) {
+    add(missionAreas, "cybersecurity");
+    add(exactTerms, "threat detection");
+    add(controlledConcepts, "cyber resilience");
+    add(technologyAndRd, "cybersecurity R&D");
+    add(customerUses, "small organizations");
+    if (text.includes("federal")) {
+      add(missionAreas, "homeland security");
+      add(controlledConcepts, "federal security");
+      add(customerUses, "federal agencies");
+    }
+  }
+  if (hasResearch) {
+    add(missionAreas, "technology commercialization");
+    add(controlledConcepts, "technical innovation");
+    add(technologyAndRd, "research and development");
+    add(customerUses, "commercialization");
+    add(controlledConcepts, "commercialization");
+  }
+  if (profile.location.toLowerCase().includes("utah")) add(operatingGeographies, "Utah");
+  if (/united states|\bu\.s\.?\b|utah/i.test(profile.location)) add(operatingGeographies, "United States");
+
+  const applicantText = profile.applicantType.toLowerCase();
+  const applicantConfirmed =
+    applicantText.length > 0 &&
+    !applicantText.includes("unknown") &&
+    !applicantText.includes("confirmation needed");
+  const applicantTypes: string[] = [];
+  const legalEntityTypes: string[] = [];
+  if (applicantText.includes("small business")) add(applicantTypes, "small business");
+  if (applicantText.includes("for-profit")) {
+    add(applicantTypes, "for-profit");
+    add(legalEntityTypes, "for-profit");
+  }
+
+  return {
+    id: profile.demoKey,
+    name: profile.companyName,
+    description: profile.description,
+    missionAreas,
+    exactTerms,
+    controlledConcepts,
+    technologyAndRd,
+    customerUses,
+    operatingGeographies,
+    targetAmount: parseTargetAmount(profile.capitalNeed),
+    legalEntityTypes,
+    applicantTypes,
+    samRegistration: registrationState(profile.samStatus),
+    uei: profile.uei.trim() ? "yes" : "unknown",
+    usEntity: applicantConfirmed && /u\.s\.|united states/.test(applicantText) ? "yes" : "unknown",
+    smallBusiness: applicantConfirmed && applicantText.includes("small business") ? "yes" : "unknown",
+    requiredClearances: [],
+    certifications: [],
+    profileProvenance: {
+      sourceId: profile.demoKey,
+      sourceName: "Founder-confirmed company profile",
+      sourceUrl: profile.website || "https://government-opportunity-map.bigtoken.workers.dev/",
+      retrievedAt: new Date().toISOString(),
+      factState: "unknown",
+      snapshotStatus: "live",
+      note: "Company facts remain founder-controlled and are not government eligibility determinations.",
+    },
+  };
+}
+
+function mapRankedResults(profile: CompanyProfile): RankedOpportunityCard[] {
+  const displayById = new Map(OPPORTUNITIES.map((item) => [item.id, item]));
+  return rankOpportunities(toMatchingProfile(profile), MATCHING_OPPORTUNITIES)
+    .filter((result) => result.decision !== "Skip" && (result.score.total >= 35 || result.decision === "Partner-dependent"))
+    .map((result: MatchResult) => {
+      const display = displayById.get(result.opportunityId);
+      if (!display) throw new Error(`Missing display details for ${result.opportunityId}`);
+      const fitTier: FitTier =
+        result.fitStatus === "Strong Fit"
+          ? "Likely Fit"
+          : display.fitTier === "Adjacent"
+            ? "Adjacent"
+            : "Potential Fit";
+      const eligibilityChecks = result.eligibility
+        .filter((check) => check.state !== "pass")
+        .map((check) => check.detail);
+      return {
+        ...display,
+        fitTier,
+        decision: result.decision,
+        score: result.score.total,
+        eligibilityChecks,
+        concerns: [...new Set([...display.concerns, ...eligibilityChecks])],
+      };
+    })
+    .slice(0, 3);
+}
+
 const INITIAL_CHECKLIST = [
   { id: "registrations", label: "Confirm SAM.gov registration and UEI", detail: "Required before many federal submissions." },
   { id: "eligibility", label: "Verify every applicant-type requirement", detail: "Check ownership, location, size, and research-employment rules." },
@@ -513,6 +825,7 @@ function DecisionPill({ decision }: { decision: Decision }) {
     "Verify first": "bg-[#fff1ce] text-[#735511]",
     "Partner-dependent": "bg-[#efe9fb] text-[#5b3f84]",
     Watch: "bg-[#e9edef] text-[#43535c]",
+    Skip: "bg-[#f8e6e1] text-[#8b3c2b]",
   };
   return <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${styles[decision]}`}>{decision}</span>;
 }
@@ -573,13 +886,13 @@ export default function OpportunityWorkbench() {
   }, [checklist, hydrated, profile, selectedOpportunityId, sourceEvidence, stage]);
 
   const profileKey = profile.demoKey === "custom" ? inferDemoKey(`${profile.description} ${profile.industry} ${profile.technology}`) : profile.demoKey;
-  const matches = useMemo(
-    () => (profileKey === "custom" || profileKey === "consumer" ? [] : OPPORTUNITIES.filter((item) => item.demoKeys.includes(profileKey))),
-    [profileKey],
-  );
+  const matches = useMemo(() => mapRankedResults(profile), [profile]);
   const currentNoticeCount = matches.filter((item) => item.sourceKind !== "Program route").length;
   const selectedOpportunity =
-    OPPORTUNITIES.find((item) => item.id === selectedOpportunityId) ?? matches[0] ?? null;
+    matches.find((item) => item.id === selectedOpportunityId) ??
+    OPPORTUNITIES.find((item) => item.id === selectedOpportunityId) ??
+    matches[0] ??
+    null;
   const completedCount = INITIAL_CHECKLIST.filter((item) => checklist[item.id]).length;
 
   function resetWorkspace() {

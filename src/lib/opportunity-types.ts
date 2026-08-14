@@ -1,7 +1,7 @@
 /** Shared contracts for deterministic, source-backed opportunity matching. */
 export type FactState = "current" | "historical" | "unknown";
-export type RecordKind = "opportunity" | "award";
-export type SnapshotStatus = "live" | "cached_demo_snapshot";
+export type RecordKind = "opportunity" | "program" | "award";
+export type SnapshotStatus = "live" | "cached_official_snapshot" | "cached_demo_snapshot";
 export type FitStatus = "Strong Fit" | "Potential Fit" | "No Fit";
 export type DecisionLabel =
   | "Pursue now"
@@ -60,7 +60,13 @@ export interface EligibilityRequirement {
   certifications?: readonly string[];
   allowedGeographies?: readonly string[];
   /** A capable teammate can cure this blocker, but the company cannot proceed alone. */
-  partnerMaySatisfy?: readonly ("clearances" | "certifications" | "geography")[];
+  partnerMaySatisfy?: readonly (
+    | "applicantType"
+    | "legalEntityType"
+    | "clearances"
+    | "certifications"
+    | "geography"
+  )[];
 }
 
 export interface Opportunity {
@@ -69,7 +75,7 @@ export interface Opportunity {
   recordKind: RecordKind;
   source: Provenance;
   agency: string;
-  opportunityStatus: "open" | "forecast" | "closed" | "historical";
+  opportunityStatus: "open" | "forecast" | "program" | "closed" | "historical";
   deadline?: string;
   amount?: { min?: number; max?: number; currency: "USD" };
   missionAreas: readonly string[];
