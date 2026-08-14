@@ -3,7 +3,7 @@ import { demoOpportunities } from "@/data/demo-opportunities";
 import { matchOpportunity, rankOpportunities, scoreOpportunity } from "./opportunity-matching";
 import type { CompanyProfile, Opportunity } from "./opportunity-types";
 
-const assert = (condition: unknown, message: string): asserts condition => {
+const assert: (condition: unknown, message: string) => asserts condition = (condition, message) => {
   if (!condition) throw new Error(`Opportunity matching assertion failed: ${message}`);
 };
 
