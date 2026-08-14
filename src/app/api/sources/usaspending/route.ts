@@ -103,14 +103,14 @@ export async function POST(request: Request) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 7_000);
+  const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
     const upstream = await fetch("https://api.usaspending.gov/api/v2/search/spending_by_award/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         subawards: false,
-        limit: 25,
+        limit: 10,
         page: 1,
         filters: {
           award_type_codes: ["02", "03", "04", "05"],
@@ -150,7 +150,7 @@ export async function POST(request: Request) {
       ...base,
       sourceStatus: "cached-fallback",
       records: cached,
-      warning: "USAspending.gov could not be reached or validated within seven seconds. Showing the audited August 14, 2026 fallback snapshot.",
+      warning: "USAspending.gov could not be reached or validated within twelve seconds. Showing the audited August 14, 2026 fallback snapshot.",
     });
   } finally {
     clearTimeout(timeout);
