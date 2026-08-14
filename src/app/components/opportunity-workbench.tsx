@@ -351,6 +351,32 @@ const OPPORTUNITIES: OpportunityCard[] = [
     applicationFields: COMMON_APPLICATION_FIELDS,
   },
   {
+    id: "grants-nnh26ztr001n",
+    demoKeys: ["manufacturing"],
+    title: "Space Technology Research, Development, Demonstration, and Infusion (SpaceTech REDDI-2026)",
+    agency: "NASA Headquarters",
+    opportunityNumber: "NNH26ZTR001N · Grants.gov ID 360954 · ALN 43.012",
+    sourceKind: "Current opportunity",
+    sourceLabel: "Official Grants.gov opportunity record",
+    sourceUrl: "https://www.grants.gov/search-results-detail/360954",
+    retrievedAt: "August 14, 2026",
+    deadline: "Appendix-specific; umbrella listing is posted",
+    amount: "Appendix-specific",
+    fitTier: "Adjacent",
+    decision: "Verify first",
+    relationship: "Posted NASA umbrella solicitation; a matching open appendix is required",
+    reasons: [
+      "NASA describes this route as research, development, demonstration, and infusion of transformational space technologies.",
+      "The official record says participation is broadly open to industry and notes that NASA space-technology R&D occurs at small businesses.",
+    ],
+    concerns: [
+      "The umbrella listing is not itself a confirmed lightweight-materials or manufacturing topic.",
+      "Each appendix can impose its own technical scope, eligibility, deadline, and cost-sharing rules.",
+    ],
+    nextAction: "Review the currently open NSPIRES appendices and proceed only if one explicitly covers the company’s materials or manufacturing R&D.",
+    applicationFields: COMMON_APPLICATION_FIELDS,
+  },
+  {
     id: "grants-r26as00079",
     demoKeys: ["water"],
     title: "Title XVI Water Reclamation and Reuse Projects",
@@ -374,6 +400,32 @@ const OPPORTUNITIES: OpportunityCard[] = [
       "The startup should not apply alone or treat vendor participation as guaranteed grant eligibility.",
     ],
     nextAction: "Ask a qualifying municipal water partner whether the technology belongs in its eligible project before doing any grant-writing work.",
+    applicationFields: COMMON_APPLICATION_FIELDS,
+  },
+  {
+    id: "grants-25-515",
+    demoKeys: ["cyber"],
+    title: "Security, Privacy, and Trust in Cyberspace",
+    agency: "U.S. National Science Foundation",
+    opportunityNumber: "25-515 · Grants.gov ID 357554 · ALNs 47.049, 47.070, 47.075, 47.076",
+    sourceKind: "Current opportunity",
+    sourceLabel: "Official Grants.gov opportunity record",
+    sourceUrl: "https://www.grants.gov/search-results-detail/357554",
+    retrievedAt: "August 14, 2026",
+    deadline: "September 28, 2026",
+    amount: "$50K floor · $1.2M ceiling in Grants.gov record",
+    fitTier: "Adjacent",
+    decision: "Partner-dependent",
+    relationship: "Current cybersecurity research opportunity; the startup is not a listed direct applicant",
+    reasons: [
+      "The program focuses on security, privacy, resilience, and trust in cyber systems.",
+      "Threat-detection R&D may contribute to a research-led project with a qualifying institution.",
+    ],
+    concerns: [
+      "Direct proposals are limited to eligible U.S. higher-education institutions and qualifying nonprofit research organizations.",
+      "For-profit personnel cannot satisfy the notice’s principal-investigator appointment rule by themselves.",
+    ],
+    nextAction: "Only investigate this route if an eligible university or nonprofit research organization will lead a genuinely research-focused project; otherwise skip it.",
     applicationFields: COMMON_APPLICATION_FIELDS,
   },
   {
@@ -493,6 +545,21 @@ const MATCHING_OPPORTUNITIES: readonly MatchingOpportunity[] = [
       uei: true,
     },
   }),
+  createMatchingOpportunity("grants-nnh26ztr001n", {
+    recordKind: "opportunity",
+    opportunityStatus: "open",
+    missionAreas: ["aerospace", "technology commercialization"],
+    exactTerms: ["space technology"],
+    controlledConcepts: ["technical innovation"],
+    technologyAndRd: ["research and development", "materials R&D"],
+    customerUses: ["commercialization"],
+    geographies: ["United States"],
+    eligibility: {
+      applicantTypes: ["industry", "small business", "for-profit"],
+      samRegistration: true,
+      uei: true,
+    },
+  }),
   createMatchingOpportunity("grants-r26as00079", {
     recordKind: "opportunity",
     opportunityStatus: "open",
@@ -505,6 +572,24 @@ const MATCHING_OPPORTUNITIES: readonly MatchingOpportunity[] = [
     geographies: ["Utah", "United States"],
     eligibility: {
       applicantTypes: ["public water entity", "municipality", "tribe", "water district"],
+      samRegistration: true,
+      uei: true,
+      partnerMaySatisfy: ["applicantType"],
+    },
+  }),
+  createMatchingOpportunity("grants-25-515", {
+    recordKind: "opportunity",
+    opportunityStatus: "open",
+    deadline: "2026-09-28T23:59:59Z",
+    amount: { min: 50_000, max: 1_200_000, currency: "USD" },
+    missionAreas: ["cybersecurity"],
+    exactTerms: ["cybersecurity"],
+    controlledConcepts: ["cyber resilience"],
+    technologyAndRd: ["cybersecurity R&D"],
+    customerUses: [],
+    geographies: ["United States"],
+    eligibility: {
+      applicantTypes: ["institution of higher education", "nonprofit research organization"],
       samRegistration: true,
       uei: true,
       partnerMaySatisfy: ["applicantType"],
@@ -612,6 +697,7 @@ function toMatchingProfile(profile: CompanyProfile): MatchingCompanyProfile {
   }
   if (hasAny(text, ["cybersecurity", "threat detection", "security analytics"])) {
     add(missionAreas, "cybersecurity");
+    add(exactTerms, "cybersecurity");
     add(exactTerms, "threat detection");
     add(controlledConcepts, "cyber resilience");
     add(technologyAndRd, "cybersecurity R&D");
