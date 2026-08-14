@@ -1365,6 +1365,7 @@ export default function OpportunityWorkbench() {
                           <span className="rounded-full bg-[#17211b] px-3 py-1.5 text-xs font-bold text-white">#{index + 1}</span>
                           <DecisionPill decision={opportunity.decision} />
                           <span className="rounded-full bg-[#eef1ed] px-3 py-1.5 text-xs font-semibold text-[#526058]">{opportunity.fitTier}</span>
+                          <span className="rounded-full border border-[#17211b]/10 bg-white px-3 py-1.5 text-xs font-semibold text-[#526058]" title="Deterministic evidence score, not an eligibility determination">Evidence {opportunity.score}/100</span>
                         </div>
                         <p className="mt-6 text-xs font-bold uppercase tracking-[0.15em] text-[#47795b]">{opportunity.agency}</p>
                         <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">{opportunity.title}</h2>
@@ -1463,6 +1464,23 @@ export default function OpportunityWorkbench() {
                 <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#59655e] sm:mt-0">No supported insight</span>
               </div>
             )}
+
+            <div className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-white/75 p-6 sm:p-7">
+              <div className="grid gap-5 lg:grid-cols-[0.36fr_0.64fr] lg:items-start">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Ranking rules</p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Evidence first. Eligibility before optimism.</h2>
+                </div>
+                <div>
+                  <p className="text-sm leading-6 text-[#59655e]">Hard applicant restrictions run before ranking. Unknown critical facts cap the result, partner routes require real thematic relevance, and deadlines break ties only. The score is evidence strength, not an eligibility decision.</p>
+                  <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold text-[#526058]">
+                    {["Mission 25", "Exact terms 20", "Concepts 15", "Technology/R&D 15", "Customer/use 10", "Amount 10", "Geography 5"].map((item) => (
+                      <span key={item} className="rounded-full bg-[#eef1ed] px-3 py-1.5">{item}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
         )}
 
