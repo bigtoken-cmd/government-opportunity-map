@@ -77,6 +77,27 @@ type WebsiteResponse = {
   fallback?: string;
 };
 
+type SourceHealth = {
+  status: "idle" | "checking" | "live" | "cached" | "cached-fallback" | "unavailable";
+  message: string;
+};
+
+type GrantsSourceResponse = {
+  sourceStatus?: SourceHealth["status"];
+  warning?: string | null;
+  records?: Array<{
+    opportunityNumber?: string;
+    status?: string;
+    closeDate?: string;
+  }>;
+};
+
+type SpendingSourceResponse = {
+  sourceStatus?: SourceHealth["status"];
+  warning?: string | null;
+  records?: Array<{ awardId?: string }>;
+};
+
 const EMPTY_PROFILE: CompanyProfile = {
   demoKey: "custom",
   companyName: "",
@@ -692,6 +713,18 @@ const INITIAL_CHECKLIST = [
   { id: "package", label: "Review the official application package", detail: "Leave unsupported answers blank until the founder supplies them." },
 ];
 
+const HEALTHCARE_HISTORY = {
+  recipient: "PROFUSA, INC.",
+  awardId: "R01EB016414",
+  amount: "$4,881,972",
+  assistanceListing: "93.310",
+  startDate: "September 15, 2012",
+  endDate: "June 30, 2016",
+  description: "IMPLANTABLE MULTI-ANALYTE SENSORS FOR THE CONTINUOUS MONITORING OF BODY CHEMISTRI",
+  sourceUrl: "https://www.usaspending.gov/award/ASST_NON_R01EB016414_075/",
+  retrievedAt: "August 14, 2026",
+};
+
 const STORAGE_KEY = "government-opportunity-map-workspace-v1";
 
 function inferDemoKey(text: string): DemoKey | "custom" {
@@ -845,6 +878,8 @@ export default function OpportunityWorkbench() {
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [hydrated, setHydrated] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [grantsHealth, setGrantsHealth] = useState<SourceHealth>({ status: "idle", message: "" });
+  const [spendingHealth, setSpendingHealth] = useState<SourceHealth>({ status: "idle", message: "" });
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -894,6 +929,72 @@ export default function OpportunityWorkbench() {
     matches[0] ??
     null;
   const completedCount = INITIAL_CHECKLIST.filter((item) => checklist[item.id]).length;
+
+  useEffect(() => {
+    if (stage !== "results") {
+      setGrantsHealth({ status: "idle", message: "" });
+      setSpendingHealth({ status: "idle", message: "" });
+      return;
+    }
+
+    const controller = new AbortController();
+    const currentRecord = matches.find((item) => item.sourceKind === "Current opportunity");
+    if (currentRecord) {
+      const opportunityNumber = currentRecord.opportunityNumber.split(" · ")[0];
+      setGrantsHealth({ status: "checking", message: `Checking ${opportunityNumber} against the live Grants.gov catalog…` });
+      void fetch("/api/sources/grants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityNumber }),
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Source route failed");
+          const result = (await response.json()) as GrantsSourceResponse;
+          const record = result.records?.[0];
+          const status = result.sourceStatus ?? "unavailable";
+          const message =
+            status === "live" && record
+              ? `Live Grants.gov check: ${record.opportunityNumber ?? opportunityNumber} is ${record.status ?? "listed"}${record.closeDate ? `; catalog close date ${record.closeDate}` : ""}.`
+              : result.warning ?? "Live catalog check returned no validated record; the audited snapshot remains labeled.";
+          setGrantsHealth({ status, message });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setGrantsHealth({ status: "unavailable", message: "The browser could not complete the live catalog check. The audited snapshot remains labeled." });
+        });
+    } else {
+      setGrantsHealth({ status: "idle", message: "No current notice was ranked, so no live opportunity status is implied." });
+    }
+
+    if (profileKey === "healthcare") {
+      setSpendingHealth({ status: "checking", message: "Checking USAspending.gov for same-program historical context…" });
+      void fetch("/api/sources/usaspending", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assistanceListing: HEALTHCARE_HISTORY.assistanceListing }),
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Source route failed");
+          const result = (await response.json()) as SpendingSourceResponse;
+          const status = result.sourceStatus ?? "unavailable";
+          const message =
+            status === "live"
+              ? `Live USAspending query validated ${result.records?.length ?? 0} business prime award record${result.records?.length === 1 ? "" : "s"} with primary Assistance Listing ${HEALTHCARE_HISTORY.assistanceListing}.`
+              : result.warning ?? "Historical source check returned no validated records; the audited snapshot remains labeled.";
+          setSpendingHealth({ status, message });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setSpendingHealth({ status: "unavailable", message: "The browser could not complete the live historical check. The audited snapshot remains labeled." });
+        });
+    } else {
+      setSpendingHealth({ status: "idle", message: "" });
+    }
+
+    return () => controller.abort();
+  }, [matches, profileKey, stage]);
 
   function resetWorkspace() {
     window.localStorage.removeItem(STORAGE_KEY);
@@ -1213,16 +1314,27 @@ export default function OpportunityWorkbench() {
 
         {stage === "results" && (
           <section className="pt-10">
-            <div className="rounded-[1.5rem] border border-[#d5c58f]/50 bg-[#fff9e9] px-5 py-4 text-sm text-[#66531c] sm:flex sm:items-center sm:justify-between">
-              <p>
-                <span className="font-bold">Source mode:</span>{" "}
-                {currentNoticeCount
-                  ? `${currentNoticeCount} current Grants.gov record${currentNoticeCount === 1 ? "" : "s"} in the audited August 14 snapshot; program routes remain labeled separately.`
-                  : "Audited official-program fallback only. No program route is being presented as a live notice."}
-              </p>
-              <span className="mt-2 inline-flex rounded-full bg-white px-3 py-1 text-xs font-bold sm:mt-0">
-                {currentNoticeCount ? "Official snapshot" : "Fallback active"}
-              </span>
+            <div className={`rounded-[1.5rem] border px-5 py-4 text-sm ${grantsHealth.status === "live" ? "border-[#8fc59f]/55 bg-[#edf7ef] text-[#28583a]" : "border-[#d5c58f]/50 bg-[#fff9e9] text-[#66531c]"}`}>
+              <div className="sm:flex sm:items-center sm:justify-between sm:gap-5">
+                <p>
+                  <span className="font-bold">Source mode:</span>{" "}
+                  {currentNoticeCount
+                    ? `${currentNoticeCount} current Grants.gov record${currentNoticeCount === 1 ? "" : "s"} in the audited August 14 snapshot; program routes remain labeled separately.`
+                    : "Audited official-program fallback only. No program route is being presented as a live notice."}
+                </p>
+                <span className="mt-2 inline-flex shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold sm:mt-0">
+                  {grantsHealth.status === "checking"
+                    ? "Checking live catalog"
+                    : grantsHealth.status === "live"
+                      ? "Live API validated"
+                      : grantsHealth.status === "cached-fallback" || grantsHealth.status === "unavailable"
+                        ? "Cached fallback active"
+                        : currentNoticeCount
+                          ? "Official snapshot"
+                          : "Fallback active"}
+                </span>
+              </div>
+              {grantsHealth.message && <p className="mt-2 text-xs leading-5 opacity-80">{grantsHealth.message}</p>}
             </div>
 
             <div className="mt-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -1308,13 +1420,48 @@ export default function OpportunityWorkbench() {
               </div>
             )}
 
-            <div className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed] p-6 sm:flex sm:items-center sm:justify-between sm:gap-6">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Historical intelligence</p>
-                <p className="mt-2 text-sm leading-6 text-[#59655e]">USAspending enrichment is kept separate from the routes above. No historical award is being represented as an open opportunity.</p>
+            {profileKey === "healthcare" ? (
+              <div className="mt-8 overflow-hidden rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed]">
+                <div className="grid lg:grid-cols-[0.7fr_0.3fr]">
+                  <div className="p-6 sm:p-7">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Historical intelligence</p>
+                      <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-[#59655e]">Historical award · not open funding</span>
+                    </div>
+                    <h2 className="mt-4 text-2xl font-semibold tracking-[-0.035em]">{HEALTHCARE_HISTORY.recipient}</h2>
+                    <p className="mt-2 text-sm leading-6 text-[#59655e]">{HEALTHCARE_HISTORY.description}</p>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">USAspending award amount</p><p className="mt-2 text-sm font-bold">{HEALTHCARE_HISTORY.amount}</p></div>
+                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Award ID</p><p className="mt-2 text-sm font-bold">{HEALTHCARE_HISTORY.awardId}</p></div>
+                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Assistance Listing</p><p className="mt-2 text-sm font-bold">{HEALTHCARE_HISTORY.assistanceListing}</p></div>
+                    </div>
+                  </div>
+                  <aside className="border-t border-[#17211b]/10 bg-white/70 p-6 lg:border-l lg:border-t-0">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#667169]">What this proves</p>
+                    <p className="mt-3 text-sm leading-6 text-[#59655e]">This is program-level history under Assistance Listing 93.310. It is not a recipient of the current PRIMED-AI notice and does not prove eligibility.</p>
+                    <p className="mt-4 text-xs leading-5 text-[#7a837d]">Period: {HEALTHCARE_HISTORY.startDate} to {HEALTHCARE_HISTORY.endDate}</p>
+                    <a href={HEALTHCARE_HISTORY.sourceUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex rounded-xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm font-bold text-[#315d43]">Open USAspending award</a>
+                    {spendingHealth.message && (
+                      <div className="mt-4 rounded-xl border border-[#17211b]/8 bg-white px-3 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#47795b]">
+                          {spendingHealth.status === "checking" ? "Checking live source" : spendingHealth.status === "live" ? "Live API validated" : "Audited fallback"}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-5 text-[#778179]">{spendingHealth.message}</p>
+                      </div>
+                    )}
+                    <p className="mt-3 text-[11px] text-[#8a938d]">Prime award deduplicated · Retrieved {HEALTHCARE_HISTORY.retrievedAt}</p>
+                  </aside>
+                </div>
               </div>
-              <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#59655e] sm:mt-0">Historical data pending audit</span>
-            </div>
+            ) : (
+              <div className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed] p-6 sm:flex sm:items-center sm:justify-between sm:gap-6">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Historical intelligence</p>
+                  <p className="mt-2 text-sm leading-6 text-[#59655e]">No audited historical award is shown for this profile yet. The product will not substitute an unrelated award.</p>
+                </div>
+                <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#59655e] sm:mt-0">No supported insight</span>
+              </div>
+            )}
           </section>
         )}
 
