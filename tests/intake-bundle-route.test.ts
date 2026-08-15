@@ -59,6 +59,12 @@ test("one bounded bundle combines website, manual, PDF, DOCX, and PPTX provenanc
             evidenceExcerpt: "Acme Water Labs builds utility analytics.",
           },
           {
+            field: "description",
+            kind: "summarized",
+            value: "Acme Water Labs builds utility analytics for public water systems.",
+            evidenceExcerpt: "Acme Water Labs builds utility analytics.",
+          },
+          {
             field: "employees",
             value: "12 employees",
             evidenceExcerpt: "We have 12 employees in Utah.",
@@ -125,12 +131,16 @@ test("one bounded bundle combines website, manual, PDF, DOCX, and PPTX provenanc
   assert.equal(body.profile.applicantType, "U.S. for-profit small business");
   assert.equal(body.profile.capitalNeed, "$500,000");
   assert.equal(body.profile.technology, "membrane sensor platform");
-  assert.match(body.profile.description, /utility analytics/);
+  assert.equal(
+    body.profile.description,
+    "Acme Water Labs builds utility analytics for public water systems.",
+  );
   assert.equal(body.profile.description.includes("Funding need: $500,000"), false);
   assert.deepEqual(
     Object.fromEntries(body.evidence.map((claim: { field: string; sourceId: string }) => [claim.field, claim.sourceId])),
     {
       companyName: "website",
+      description: "website",
       employees: "manual",
       applicantType: "upload-1",
       capitalNeed: "upload-2",
@@ -269,4 +279,36 @@ test("file-only PDF intake extracts embedded text and canonicalizes extracted lo
   assert.equal(body.profile.location, "Salt Lake City, UT");
   assert.equal(body.profileFieldOrigins.location.origin, "normalized");
   assert.equal(body.profileFieldOrigins.location.originalValue, "slc");
+  assert.equal(body.profile.description.includes("Northstar builds"), false);
+});
+
+test("bundle intake does not dump slide text into description when Luna omits a summary", async () => {
+  const post = createEvidenceBundlePost({
+    luna: {
+      apiKey: "test-only-key",
+      fetcher: async () => lunaResponse([{
+        field: "companyName",
+        value: "Helios Filtration",
+        evidenceExcerpt: "Helios Filtration builds membrane pilots.",
+      }]),
+    },
+  });
+  const pptx = await officeFile(
+    "deck.pptx",
+    "ppt/slides/slide1.xml",
+    "<p:sld xmlns:p=\"p\" xmlns:a=\"a\"><a:p><a:r><a:t>Helios Filtration builds membrane pilots. Pre-seed raise $1.5M. Team of eight in Utah. Use of funds: field validation.</a:t></a:r></a:p></p:sld>",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  );
+  const form = new FormData();
+  form.append("files", pptx);
+  form.append("fileText", "");
+
+  const response = await post(request(form));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.profile.companyName, "Helios Filtration");
+  assert.equal(body.profile.description, "");
+  assert.equal(body.profile.description.includes("Use of funds"), false);
+  assert.equal(body.profile.capitalRaised, "$1.5M");
 });

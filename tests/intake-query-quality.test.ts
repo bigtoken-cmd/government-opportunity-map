@@ -14,7 +14,7 @@ import type { SbirAwardsStore } from "../src/lib/sources/sbir-store";
 
 test("manual evidence-only intake leaves unsupported company facts blank", () => {
   const profile = createEvidenceOnlyFounderProfile("We build AI software for hospitals.");
-  assert.equal(profile.description, "We build AI software for hospitals.");
+  assert.equal(profile.description, "");
   assert.equal(profile.revenue, "");
   assert.equal(profile.capitalRaised, "");
   assert.equal(profile.applicantType, "");

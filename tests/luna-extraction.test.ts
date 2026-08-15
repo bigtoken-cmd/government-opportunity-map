@@ -337,7 +337,7 @@ test("evidence that is unusable after redaction skips Luna", async () => {
   assert.equal(result.externalProcessing.reason, "sensitive_evidence");
 });
 
-test("one unsupported evidence claim rejects the entire extraction", async () => {
+test("one unsupported evidence claim is dropped without discarding valid claims", async () => {
   const result = await extractFounderEvidence(input(), {
     apiKey: "test-only-key",
     fetcher: async () => modelResponse([
@@ -354,19 +354,18 @@ test("one unsupported evidence claim rejects the entire extraction", async () =>
     ]),
   });
 
-  assert.equal(result.externalProcessing.reason, "schema_failure");
-  assert.ok(Object.values(result.proposedProfile).every((value) => value === ""));
-  assert.deepEqual(result.evidence, []);
+  assert.equal(result.externalProcessing.completed, true);
+  assert.equal(result.proposedProfile.companyName, "Acme Water Labs");
+  assert.equal(result.proposedProfile.industry, "");
 });
 
-test("strict claim validation rejects extra, malformed, duplicate, and disallowed claims", async () => {
+test("strict claim validation keeps valid claims when neighboring claims are unusable", async () => {
   const validClaim = {
     field: "companyName",
     value: "Acme Water Labs",
     evidenceExcerpt: "Acme Water Labs builds municipal water sensors",
   };
-  const invalidClaimSets = [
-    [{ ...validClaim, extra: true }],
+  const mixedClaimSets = [
     [validClaim, { field: "technology", value: "municipal water sensors" }],
     [validClaim, { ...validClaim }],
     [validClaim, {
@@ -376,16 +375,23 @@ test("strict claim validation rejects extra, malformed, duplicate, and disallowe
     }],
   ];
 
-  for (const claims of invalidClaimSets) {
+  for (const claims of mixedClaimSets) {
     const result = await extractFounderEvidence(input(), {
       apiKey: "test-only-key",
       fetcher: async () => modelResponse(claims),
     });
 
-    assert.equal(result.externalProcessing.reason, "schema_failure");
-    assert.ok(Object.values(result.proposedProfile).every((value) => value === ""));
-    assert.deepEqual(result.evidence, []);
+    assert.equal(result.externalProcessing.completed, true);
+    assert.equal(result.proposedProfile.companyName, "Acme Water Labs");
   }
+
+  const extraOnly = await extractFounderEvidence(input(), {
+    apiKey: "test-only-key",
+    fetcher: async () => modelResponse([{ ...validClaim, extra: true }]),
+  });
+  assert.equal(extraOnly.externalProcessing.reason, "schema_failure");
+  assert.ok(Object.values(extraOnly.proposedProfile).every((value) => value === ""));
+  assert.deepEqual(extraOnly.evidence, []);
 });
 
 test("strict structured output rejects extra top-level properties", async () => {
@@ -819,4 +825,53 @@ test("inferred claims cannot invent values for non-categorical fields", async ()
     }]),
   });
   assert.equal(result.externalProcessing.reason, "schema_failure");
+});
+
+test("inferred capitalRaised may restate a pre-seed amount that appears in the excerpt", async () => {
+  const evidenceText = "Helios closed a pre-seed raise of $2M to ship membrane pilots.";
+  const result = await extractFounderEvidence(input({ evidenceText }), {
+    apiKey: "test-only-key",
+    fetcher: async () => modelResponse([
+      {
+        field: "description",
+        kind: "summarized",
+        value: "Helios ships membrane pilots for water utilities.",
+        evidenceExcerpt: "to ship membrane pilots.",
+      },
+      {
+        field: "capitalRaised",
+        kind: "inferred",
+        value: "$2 million",
+        evidenceExcerpt: "pre-seed raise of $2M",
+      },
+    ]),
+  });
+
+  assert.equal(result.externalProcessing.completed, true);
+  assert.equal(result.proposedProfile.capitalRaised, "$2 million");
+  assert.equal(result.evidence.find((claim) => claim.field === "capitalRaised")?.kind, "inferred");
+});
+
+test("verbatim description dumps are dropped while other claims still apply", async () => {
+  const evidenceText = `${"Deck context. ".repeat(40)}Acme Water Labs builds municipal water sensors for public utilities.`;
+  const result = await extractFounderEvidence(input({ evidenceText }), {
+    apiKey: "test-only-key",
+    fetcher: async () => modelResponse([
+      {
+        field: "description",
+        kind: "verbatim",
+        value: evidenceText,
+        evidenceExcerpt: evidenceText,
+      },
+      {
+        field: "technology",
+        value: "municipal water sensors",
+        evidenceExcerpt: "builds municipal water sensors for public utilities",
+      },
+    ]),
+  });
+
+  assert.equal(result.externalProcessing.completed, true);
+  assert.equal(result.proposedProfile.description, "");
+  assert.equal(result.proposedProfile.technology, "municipal water sensors");
 });

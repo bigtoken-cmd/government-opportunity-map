@@ -66,7 +66,7 @@ test("manual evidence returns only supported profile suggestions and evidence", 
   assert.equal(response.status, 200);
   assert.equal(providerCalls, 1);
   assert.equal(body.profile.companyName, "Acme Water Labs");
-  assert.equal(body.profile.description, evidenceText);
+  assert.equal(body.profile.description, "");
   assert.equal(body.profile.technology, "municipal water sensors");
   assert.equal(body.profile.yearFounded, "2021");
   assert.equal(body.profile.applicantType, "");
@@ -107,7 +107,7 @@ test("PDF evidence falls back deterministically when OpenAI is unavailable", asy
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.profile.description, evidenceText);
+  assert.equal(body.profile.description, "");
   assert.equal(body.profile.companyName, undefined);
   assert.equal(body.externalProcessing.attempted, false);
   assert.equal(body.externalProcessing.completed, false);

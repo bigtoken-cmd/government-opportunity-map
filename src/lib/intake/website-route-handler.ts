@@ -650,7 +650,7 @@ export async function fetchWebsiteEvidence(
   const profile = {
     companyName,
     website: sourceUrl,
-    description: rootPage.description || rootPage.text.slice(0, 420),
+    description: rootPage.description,
     industry: inferred.industry,
     technology: inferred.technology,
     yearFounded: inferYearFounded(inferenceText),

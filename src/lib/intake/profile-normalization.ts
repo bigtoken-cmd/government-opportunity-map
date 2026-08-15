@@ -118,7 +118,7 @@ export function normalizeFounderLocation(value: string) {
 export function createEvidenceOnlyFounderProfile(text: string): EvidenceOnlyFounderProfile {
   const inferred = inferFounderProfileFields(text);
   return {
-    description: text.trim(),
+    description: "",
     industry: inferred.industry,
     technology: inferred.technology,
     location: "",

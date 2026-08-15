@@ -5,6 +5,7 @@ import {
   type UploadLike,
 } from "./document-extraction";
 import { EXTERNAL_PROCESSING_DISCLOSURE } from "./external-processing";
+import { extractFinancialFacts } from "./evidence-facts";
 import {
   extractFounderEvidence,
   type FounderEvidenceClaim,
@@ -145,12 +146,15 @@ function mergeProfile(
   const base = createEvidenceOnlyFounderProfile(
     sources.map((source) => source.text).join("\n\n"),
   );
-  const fallbackDescription = website?.profile.description
-    ? website.profile.description.slice(0, 600)
-    : base.description.slice(0, 600);
+  const financial = extractFinancialFacts(sources.map((source) => source.text).join("\n\n"));
+  const websiteDescription = website?.profile.description.trim() ?? "";
   const profile: Record<string, string> = {
     ...base,
-    ...(fallbackDescription ? { description: fallbackDescription } : {}),
+    description: "",
+    ...(financial.capitalRaised ? { capitalRaised: financial.capitalRaised } : {}),
+    ...(financial.capitalNeed ? { capitalNeed: financial.capitalNeed } : {}),
+    ...(financial.revenue ? { revenue: financial.revenue } : {}),
+    ...(websiteDescription ? { description: websiteDescription } : {}),
     ...(website?.profile.companyName
       ? { companyName: website.profile.companyName }
       : {}),

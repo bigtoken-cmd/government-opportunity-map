@@ -1,8 +1,11 @@
 import { INTAKE_EXTRACTION_INSTRUCTIONS } from "../agents/instructions";
+import { excerptSupportsMappedAmount } from "./evidence-facts";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 const LUNA_MODEL = "gpt-5.6-luna";
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_MAPPED_VALUE_CHARS = 400;
+const MAX_VERBATIM_DESCRIPTION_CHARS = 320;
 
 const FOUNDER_PROFILE_FIELDS = [
   "companyName",
@@ -47,6 +50,11 @@ const INFERRED_PROFILE_FIELDS = new Set<FounderProfileProposalField>([
   "researchStage",
   "smallBusinessStatus",
   "usEntityStatus",
+]);
+const INFERRED_AMOUNT_FIELDS = new Set<FounderProfileProposalField>([
+  "capitalRaised",
+  "capitalNeed",
+  "revenue",
 ]);
 export type ExternalProcessingReason =
   | "invalid_evidence"
@@ -697,7 +705,7 @@ function claimKindIsAllowed(
     case "verbatim":
       return true;
     case "inferred":
-      return INFERRED_PROFILE_FIELDS.has(field);
+      return INFERRED_PROFILE_FIELDS.has(field) || INFERRED_AMOUNT_FIELDS.has(field);
     case "summarized":
       return field === "description";
     default: {
@@ -731,44 +739,65 @@ function readStructuredClaims(
   const claims: StructuredClaim[] = [];
   const populatedFields = new Set<FounderProfileProposalField>();
   for (const claim of parsed.claims) {
-    if (!isRecord(claim)) return null;
-    const keys = Object.keys(claim).sort().join(",");
-    if (keys !== "evidenceExcerpt,field,value" && keys !== "evidenceExcerpt,field,kind,value") {
-      return null;
-    }
-    const kind: FounderEvidenceClaimKind = isClaimKind(claim.kind) ? claim.kind : "verbatim";
-    if (
-      !isFounderProfileField(claim.field) ||
-      typeof claim.value !== "string" ||
-      typeof claim.evidenceExcerpt !== "string" ||
-      (claim.kind !== undefined && !isClaimKind(claim.kind))
-    ) {
-      return null;
-    }
-    const value = claim.value;
-    const evidenceExcerpt = claim.evidenceExcerpt;
-    if (
-      !value.trim() ||
-      !evidenceExcerpt.trim() ||
-      value !== value.trim() ||
-      evidenceExcerpt !== evidenceExcerpt.trim() ||
-      !evidenceText.includes(evidenceExcerpt) ||
-      !claimKindIsAllowed(kind, claim.field) ||
-      populatedFields.has(claim.field)
-    ) {
-      return null;
-    }
-    if (kind === "verbatim" && !evidenceExcerpt.includes(value)) return null;
-    if ((kind === "inferred" || kind === "summarized") && value.length > 400) return null;
-    populatedFields.add(claim.field);
-    claims.push({
-      field: claim.field,
-      value,
-      evidenceExcerpt,
-      kind,
-    });
+    const parsedClaim = readUsableClaim(claim, evidenceText, populatedFields);
+    if (!parsedClaim) continue;
+    populatedFields.add(parsedClaim.field);
+    claims.push(parsedClaim);
   }
+  if (parsed.claims.length > 0 && claims.length === 0) return null;
   return claims;
+}
+
+function readUsableClaim(
+  claim: unknown,
+  evidenceText: string,
+  populatedFields: ReadonlySet<FounderProfileProposalField>,
+): StructuredClaim | null {
+  if (!isRecord(claim)) return null;
+  const keys = Object.keys(claim).sort().join(",");
+  if (keys !== "evidenceExcerpt,field,value" && keys !== "evidenceExcerpt,field,kind,value") {
+    return null;
+  }
+  const kind: FounderEvidenceClaimKind = isClaimKind(claim.kind) ? claim.kind : "verbatim";
+  if (
+    !isFounderProfileField(claim.field) ||
+    typeof claim.value !== "string" ||
+    typeof claim.evidenceExcerpt !== "string" ||
+    (claim.kind !== undefined && !isClaimKind(claim.kind))
+  ) {
+    return null;
+  }
+  const value = claim.value;
+  const evidenceExcerpt = claim.evidenceExcerpt;
+  if (
+    !value.trim() ||
+    !evidenceExcerpt.trim() ||
+    value !== value.trim() ||
+    evidenceExcerpt !== evidenceExcerpt.trim() ||
+    !evidenceText.includes(evidenceExcerpt) ||
+    !claimKindIsAllowed(kind, claim.field) ||
+    populatedFields.has(claim.field)
+  ) {
+    return null;
+  }
+  if (kind === "verbatim" && !evidenceExcerpt.includes(value)) return null;
+  if (kind === "inferred" && INFERRED_AMOUNT_FIELDS.has(claim.field)
+    && !excerptSupportsMappedAmount(evidenceExcerpt, value)) {
+    return null;
+  }
+  if ((kind === "inferred" || kind === "summarized") && value.length > MAX_MAPPED_VALUE_CHARS) {
+    return null;
+  }
+  if (claim.field === "description" && kind === "verbatim"
+    && (value.length > MAX_VERBATIM_DESCRIPTION_CHARS || value.length > evidenceText.length / 2)) {
+    return null;
+  }
+  return {
+    field: claim.field,
+    value,
+    evidenceExcerpt,
+    kind,
+  };
 }
 
 function responseRequestBody(evidenceText: string) {
@@ -810,7 +839,7 @@ function responseRequestBody(evidenceText: string) {
                     type: "string",
                     enum: ["verbatim", "inferred", "summarized"],
                     description:
-                      "verbatim copies an exact substring. inferred maps categorical fields. summarized is description only.",
+                      "verbatim copies an exact substring. inferred maps categorical fields or restates a dollar amount. summarized is description only.",
                   },
                   value: {
                     type: "string",

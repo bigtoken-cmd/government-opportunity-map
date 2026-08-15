@@ -1639,20 +1639,6 @@ export default function OpportunityWorkbench() {
               <h1 data-stage-heading tabIndex={-1}>{currentReviewQuestion.question}</h1>
               <p>{currentReviewQuestion.why}</p>
             </div>
-            {REQUIRED_PROFILE_QUESTIONS.some(({ key }) => isSupportedProfileField(key, profile[key])) && (
-              <div className="mb-5 rounded-2xl border border-[#0a1930]/8 bg-white/80 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#68778b]">Already filled from your evidence</p>
-                <ul className="mt-3 grid gap-2">
-                  {REQUIRED_PROFILE_QUESTIONS
-                    .filter(({ key }) => isSupportedProfileField(key, profile[key]))
-                    .map((field) => (
-                      <li key={field.key} className="text-sm leading-6 text-[#36475f]">
-                        <strong>{field.label}:</strong> {String(profile[field.key])}
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            )}
             <div className="approval-question-card">
               <div className="approval-question-body">
                 <QuestionField

@@ -5,6 +5,7 @@ import {
   type FounderEvidenceSourceType,
   type LunaExtractionDependencies,
 } from "./luna-extraction";
+import { extractFinancialFacts } from "./evidence-facts";
 import { createEvidenceOnlyFounderProfile } from "./profile-normalization";
 
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
@@ -157,19 +158,20 @@ export function createEvidencePost(
       sourceUrl: evidenceSourceUrl,
     }, lunaDependencies);
     const baseProfile = createEvidenceOnlyFounderProfile(evidenceText);
+    const financial = extractFinancialFacts(evidenceText);
     const proposed = extraction.proposedProfile;
     const profile = {
       ...baseProfile,
       ...(proposed.companyName ? { companyName: proposed.companyName } : {}),
-      description: proposed.description || baseProfile.description,
+      description: proposed.description,
       industry: proposed.industry || baseProfile.industry,
       technology: proposed.technology || baseProfile.technology,
       location: proposed.location || baseProfile.location,
       yearFounded: proposed.yearFounded || baseProfile.yearFounded,
       employees: proposed.employees || baseProfile.employees,
-      revenue: proposed.revenue || baseProfile.revenue,
-      capitalRaised: proposed.capitalRaised || baseProfile.capitalRaised,
-      capitalNeed: proposed.capitalNeed || baseProfile.capitalNeed,
+      revenue: proposed.revenue || financial.revenue || baseProfile.revenue,
+      capitalRaised: proposed.capitalRaised || financial.capitalRaised || baseProfile.capitalRaised,
+      capitalNeed: proposed.capitalNeed || financial.capitalNeed || baseProfile.capitalNeed,
       useOfFunds: proposed.useOfFunds || baseProfile.useOfFunds,
       customers: proposed.customers || baseProfile.customers,
       researchActivities:
