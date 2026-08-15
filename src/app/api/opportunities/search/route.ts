@@ -58,7 +58,6 @@ type SemanticAuthorization =
 
 async function authorizeSearchRequest(
   request: Request,
-  includeSemanticReview: boolean,
 ): Promise<{
   route: "allowed" | "rate_limited" | "rate_limit_unavailable";
   semantic: SemanticAuthorization;
@@ -76,9 +75,6 @@ async function authorizeSearchRequest(
     const search = await searchLimiter.limit({ key: `opportunity-search:${clientKey}` });
     if (!search.success) {
       return { route: "rate_limited", semantic: "rate_limited" };
-    }
-    if (!includeSemanticReview) {
-      return { route: "allowed", semantic: "rate_limit_unavailable" };
     }
     const clientLimiter = env.OPPORTUNITY_SEMANTIC_CLIENT_LIMITER as
       | RateLimitBinding
@@ -162,8 +158,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const semanticConsent = body.externalProcessingConsent === true;
-  const authorization = await authorizeSearchRequest(request, semanticConsent);
+  const authorization = await authorizeSearchRequest(request);
   if (authorization.route === "rate_limited") {
     return NextResponse.json(
       { error: "Opportunity search rate limit exceeded. Try again in one minute." },
@@ -179,25 +174,13 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  if (semanticConsent && authorization.semantic === "rate_limited") {
-    return NextResponse.json(
-      { error: "Luna review rate limit exceeded. Retry without external processing or wait one minute." },
-      { status: 429 },
-    );
-  }
-
   const result = await searchGovernmentSources(
     normalizeFounderProfile(input),
     {
       mode: sourceMode(body.mode),
-      ...(semanticConsent
-        ? {
-            semanticReview: {
-              externalProcessingConsent: true,
-              authorizeProviderRequest: async () => authorization.semantic,
-            },
-          }
-        : {}),
+      semanticReview: {
+        authorizeProviderRequest: async () => authorization.semantic,
+      },
     },
   );
   return NextResponse.json(result);

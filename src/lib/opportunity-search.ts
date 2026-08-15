@@ -58,9 +58,7 @@ export interface GovernmentSourceSearchOptions {
   assistanceListingsStore?: AssistanceListingsStore;
   sbirAwardsStore?: SbirAwardsStore;
   ranker?: OpportunityRanker;
-  semanticReview?: LunaSemanticReviewDependencies & {
-    externalProcessingConsent: boolean;
-  };
+  semanticReview?: LunaSemanticReviewDependencies;
 }
 
 export type SearchQueryFamily =
@@ -356,16 +354,11 @@ export async function searchGovernmentSources(
   );
   let semanticReview: SemanticReviewProcessing | undefined;
   const warnings = sources.flatMap((source) => source.warning ? [source.warning] : []);
-  if (options.semanticReview?.externalProcessingConsent === true) {
-    const {
-      externalProcessingConsent,
-      ...semanticDependencies
-    } = options.semanticReview;
+  if (options.semanticReview) {
     const reviewed = await reviewOpportunitySemantics({
-      externalProcessingConsent,
       company,
       discovery,
-    }, semanticDependencies);
+    }, options.semanticReview);
     discovery = reviewed.discovery;
     semanticReview = reviewed.processing;
     if (

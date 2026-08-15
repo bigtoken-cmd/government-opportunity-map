@@ -3,11 +3,12 @@
 import {
   ChangeEvent,
   FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { EXTERNAL_PROCESSING_DISCLOSURE } from "@/lib/intake/external-processing";
+import { ThinkingOrb } from "thinking-orbs";
 import { pickSupportedEvidenceProfile } from "@/lib/intake/evidence-profile";
 import { createEvidenceOnlyFounderProfile } from "@/lib/intake/profile-normalization";
 import type { DiscoveryRecommendation } from "@/lib/opportunity-discovery";
@@ -36,6 +37,7 @@ type Stage = "intake" | "review" | "results" | "workspace";
 type FitTier = "Likely Fit" | "Potential Fit" | "Adjacent";
 type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch" | "Skip";
 type SaveMode = "saving" | "device-only" | "durable";
+type ReviewMode = "required" | "optional" | "confirm" | "save";
 
 type ProfileFieldOrigin = {
   origin: "extracted" | "unknown" | "founder-confirmed";
@@ -149,20 +151,107 @@ type UploadedFile = {
   file: File;
 };
 
-const REQUIRED_REVIEW_QUESTIONS: Array<{
+type ProfileFieldDefinition = {
   key: keyof CompanyProfile;
   label: string;
+  question: string;
   why: string;
   placeholder: string;
+  type?: "text" | "email" | "url";
+  autoComplete?: string;
   multiline?: boolean;
-}> = [
-  { key: "companyName", label: "What is the company called?", why: "We use this to keep your profile and saved work clear.", placeholder: "Company name" },
-  { key: "description", label: "What does the company build?", why: "A specific product and problem produce stronger matches than broad industry terms.", placeholder: "Describe the product and the problem it solves", multiline: true },
-  { key: "location", label: "Where is the company based?", why: "Some routes have state, domestic, or place-of-performance rules.", placeholder: "City, state, country" },
-  { key: "applicantType", label: "What kind of applicant are you?", why: "Applicant type is one of the most common hard eligibility boundaries.", placeholder: "For-profit small business, nonprofit, university…" },
-  { key: "ownership", label: "How is the company owned and controlled?", why: "Some small-business and research programs have ownership requirements.", placeholder: "Founder-owned, venture-backed, subsidiary…" },
-  { key: "useOfFunds", label: "What would the funding support?", why: "This separates a real public-purpose project from general business funding.", placeholder: "Research, pilot, equipment, hiring…", multiline: true },
+  options?: readonly string[];
+  multipleOptions?: boolean;
+  optionDisplay?: "checklist" | "dropdown";
+  optionLayout?: "row-first" | "column-first";
+};
+
+const REQUIRED_PROFILE_QUESTIONS: ProfileFieldDefinition[] = [
+  { key: "description", label: "Company description", question: "What does the company offer?", why: "A short description of the product and problem gives us the strongest starting point.", placeholder: "Briefly describe the product or service and the problem it solves.", multiline: true },
+  { key: "industry", label: "Industry", question: "Which industry best describes your business?", why: "Choose the closest match. Select Other if your industry is not listed.", placeholder: "Select an industry", options: ["Agriculture and food", "Aerospace and defense", "Automotive and mobility", "Biotechnology and life sciences", "Climate and clean energy", "Construction and real estate", "Consumer products and retail", "Cybersecurity", "Education", "Energy and utilities", "Financial services", "Government and civic technology", "Healthcare and medical devices", "Industrial and advanced manufacturing", "Information technology and software", "Logistics and supply chain", "Media and entertainment", "Mining and natural resources", "Professional and business services", "Robotics and automation", "Semiconductors and electronics", "Telecommunications", "Transportation and infrastructure", "Water and environmental services", "Other"], optionDisplay: "dropdown" },
+  { key: "technology", label: "Core technology or method", question: "What is the main technology or method behind what you offer?", why: "Think about the software, equipment, scientific method, or technical process that makes it work.", placeholder: "e.g., computer vision, membrane filtration, industrial robotics, or a specialized service method" },
+  { key: "location", label: "Company location", question: "Where is the company based?", why: "Some routes have state, domestic, or place-of-performance rules.", placeholder: "City, state, and country", autoComplete: "address-level2" },
+  { key: "applicantType", label: "Organization type", question: "What type of organization are you?", why: "Government programs often limit which types of organizations can apply.", placeholder: "Select an organization type", options: ["For-profit business", "Nonprofit organization", "University or research institution", "State, local, or tribal government", "Individual", "Other organization"] },
+  { key: "ownership", label: "Ownership and control", question: "How is the company owned and controlled?", why: "Select all that apply. Some small-business and research programs have ownership requirements.", placeholder: "Select ownership details", options: ["Founder-owned", "U.S. citizen or permanent-resident owned and controlled", "Woman-owned", "Minority-owned", "Veteran-owned", "Venture-backed or institutionally owned", "Subsidiary or parent-owned", "Not sure"], multipleOptions: true },
+  { key: "useOfFunds", label: "Use of funds", question: "What will the funds be used for?", why: "A practical use of funds helps us find programs that support the work you actually want to do.", placeholder: "e.g., research, prototyping, pilot testing, equipment, or commercialization", multiline: true },
 ];
+
+const OPTIONAL_PROFILE_FIELDS: ProfileFieldDefinition[] = [
+  { key: "companyName", label: "Company name", question: "Company name", why: "", placeholder: "Company name", autoComplete: "organization" },
+  { key: "website", label: "Website", question: "Company website", why: "", placeholder: "https://yourcompany.com", type: "url", autoComplete: "url" },
+  { key: "employees", label: "Team size", question: "Team size", why: "", placeholder: "Select a team size", options: ["1–2 people", "3–10 people", "11–50 people", "51–250 people", "251 or more people"] },
+  { key: "customers", label: "Target customers", question: "Who is the product for?", why: "", placeholder: "e.g., consumers, small businesses, hospitals, or public agencies", multiline: true },
+  { key: "capitalNeed", label: "Funding need", question: "Preferred funding range", why: "", placeholder: "e.g., $100,000–$500,000" },
+  { key: "revenue", label: "Annual revenue", question: "Annual revenue", why: "", placeholder: "$750,000 last year" },
+  { key: "capitalRaised", label: "Capital raised", question: "Capital raised so far", why: "", placeholder: "$1.2 million raised to date" },
+  { key: "samStatus", label: "SAM.gov status", question: "SAM.gov registration status", why: "", placeholder: "Select a registration status", options: ["Active", "In progress", "Expired", "Not started", "Unsure"], optionLayout: "column-first" },
+  { key: "uei", label: "Unique Entity ID (from SAM.gov)", question: "Unique Entity ID (from SAM.gov)", why: "", placeholder: "12-character identifier assigned through SAM.gov" },
+];
+
+const SAVE_PROFILE_FIELDS: ProfileFieldDefinition[] = [
+  { key: "founderName", label: "Primary contact", question: "Primary contact name", why: "", placeholder: "Full name", autoComplete: "name" },
+  { key: "founderRole", label: "Contact role", question: "Primary contact role", why: "", placeholder: "Job title", autoComplete: "organization-title" },
+  { key: "founderEmail", label: "Contact email", question: "Primary contact email", why: "", placeholder: "name@company.com", type: "email", autoComplete: "email" },
+];
+
+const OPTIONAL_PROFILE_GROUPS: Array<{
+  title: string;
+  description: string;
+  keys: Array<keyof CompanyProfile>;
+}> = [
+  {
+    title: "Company details",
+    description: "Helpful context about the business and who it serves.",
+    keys: ["companyName", "website", "employees", "customers"],
+  },
+  {
+    title: "Funding details",
+    description: "Optional financial context for narrowing the range of possible programs.",
+    keys: ["capitalNeed", "revenue", "capitalRaised"],
+  },
+  {
+    title: "Federal registration",
+    description: "Registration details used later in many federal applications.",
+    keys: ["samStatus", "uei"],
+  },
+];
+
+const PROFILE_REVIEW_ONLY_FIELDS: ProfileFieldDefinition[] = [
+  { key: "researchActivities", label: "Research and development", question: "Technical milestones", why: "", placeholder: "e.g., prototyping, validation, field trials, or certification", multiline: true },
+];
+
+const PROFILE_FIELD_DEFINITIONS = [
+  ...REQUIRED_PROFILE_QUESTIONS,
+  ...OPTIONAL_PROFILE_FIELDS,
+  ...SAVE_PROFILE_FIELDS,
+  ...PROFILE_REVIEW_ONLY_FIELDS,
+];
+
+const PROFILE_REVIEW_GROUPS: Array<{
+  title: string;
+  description: string;
+  keys: Array<keyof CompanyProfile>;
+}> = [
+  {
+    title: "Company details",
+    description: "The core facts used to understand the business and its work.",
+    keys: ["companyName", "website", "description", "industry", "technology", "location", "employees", "customers", "researchActivities"],
+  },
+  {
+    title: "Financing",
+    description: "The project and financial context used to narrow possible funding routes.",
+    keys: ["capitalNeed", "useOfFunds", "revenue", "capitalRaised"],
+  },
+  {
+    title: "Eligibility and federal registration",
+    description: "Organization and registration details used to check applicant requirements.",
+    keys: ["applicantType", "ownership", "samStatus", "uei"],
+  },
+];
+
+const REQUIRED_PROFILE_FIELD_KEYS = new Set(
+  REQUIRED_PROFILE_QUESTIONS.map(({ key }) => key),
+);
 
 const EXTERNAL_SOURCE_CHECKS = [
   {
@@ -204,9 +293,9 @@ const EMPTY_PROFILE: CompanyProfile = {
   useOfFunds: "",
   customers: "",
   researchActivities: "",
-  applicantType: "Unknown",
-  ownership: "Unknown",
-  samStatus: "Unknown",
+  applicantType: "",
+  ownership: "",
+  samStatus: "",
   uei: "",
 };
 
@@ -278,6 +367,16 @@ function isSupportedProfileField(key: keyof CompanyProfile | undefined, value: u
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim());
 }
 
+function profileForDisplay(candidate: Partial<CompanyProfile>): CompanyProfile {
+  const profile = { ...EMPTY_PROFILE, ...candidate };
+  return Object.fromEntries(
+    (Object.keys(EMPTY_PROFILE) as Array<keyof CompanyProfile>).map((key) => [
+      key,
+      isSupportedProfileValue(profile[key]) ? String(profile[key]).trim() : "",
+    ]),
+  ) as CompanyProfile;
+}
+
 function sourceSummaryMessage(summary: SourceSearchSummary) {
   if (summary.warning) return summary.warning;
   if (summary.family === "grants") {
@@ -345,22 +444,22 @@ const STORAGE_VERSION = 3;
 const WORKSPACE_CLIENT = createWorkspaceClient();
 const SAVE_MODE_CONTENT: Record<
   SaveMode,
-  { announcement: string; label: string; dotClassName: string }
+  { announcement: string; label: string; saved: boolean }
 > = {
   saving: {
-    announcement: "Saving workspace on this device",
-    label: "Saving on this device",
-    dotClassName: "bg-[#d1a24b]",
+    announcement: "Saving progress",
+    label: "Saving progress…",
+    saved: false,
   },
   "device-only": {
-    announcement: "Workspace saved on this device only",
-    label: "Device-only save",
-    dotClassName: "bg-[#d1a24b]",
+    announcement: "Progress saved",
+    label: "Progress saved",
+    saved: true,
   },
   durable: {
-    announcement: "Workspace saved durably",
-    label: "Durable save",
-    dotClassName: "bg-[#4c9b67]",
+    announcement: "Progress saved",
+    label: "Progress saved",
+    saved: true,
   },
 };
 interface StoredWorkbenchSnapshot {
@@ -379,26 +478,6 @@ interface StoredWorkbenchSnapshot {
   searchError?: string;
   durableWorkspace?: WorkspaceClientCredentials;
   savedOpportunityIds?: string[];
-}
-
-function profileOriginLabel(
-  origin: ProfileFieldOrigin | undefined,
-  value: string,
-) {
-  if (!isSupportedProfileValue(value)) return "Still unknown";
-  if (origin?.origin === "founder-confirmed") return "Founder confirmed";
-  if (origin?.origin !== "extracted") return "Source not recorded";
-
-  const sourceIds = new Set([
-    ...(origin.sourceIds ?? []),
-    ...(origin.sourceId ? [origin.sourceId] : []),
-  ]);
-  if (sourceIds.has("manual")) return "From your text";
-  if ([...sourceIds].some((sourceId) => sourceId.startsWith("upload-"))) {
-    return "From uploaded file";
-  }
-  if (sourceIds.has("website")) return "From website";
-  return "From submitted evidence";
 }
 
 function normalizedProfileOrigins(
@@ -454,16 +533,12 @@ function clearStoredDurableCredentials() {
 }
 
 function StepRail({ stage }: { stage: Stage }) {
-  if (stage === "workspace") return null;
-  const step = stage === "intake" ? 1 : stage === "review" ? 2 : 3;
-  const label = stage === "intake"
-    ? "Add your information"
-    : stage === "review"
-      ? "Confirm your profile"
-      : "Review your resources";
+  if (stage === "results" || stage === "workspace") return null;
+  const step = stage === "intake" ? 1 : 2;
+  const label = stage === "intake" ? "Add your information" : "Complete your profile";
   return (
     <div className="flex items-center gap-3 text-sm font-semibold text-[#68778b]" aria-label="Profile progress">
-      <span>Step {step} of 3</span>
+      <span>Step {step} of 2</span>
       <span aria-hidden="true" className="h-px w-8 bg-[#d7e0ed]" />
       <span className="text-[#06275c]">{label}</span>
     </div>
@@ -481,17 +556,28 @@ function AppHeader({
   return (
     <header className="app-header sticky top-0 z-30 border-b border-[#0a1930]/10 backdrop-blur-xl">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-8 lg:px-12">
-        <div className="flex min-w-0 items-center gap-3">
-          <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#06275c] text-xs font-black tracking-[-0.04em] text-white shadow-[0_8px_24px_rgba(23,61,44,0.18)]">GR</span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold tracking-[-0.02em]">Government Resource Finder</p>
-            <p className="hidden text-[11px] text-[#68778b] sm:block">Clear routes for startup funding</p>
-          </div>
-        </div>
+        <p className="app-brand min-w-0 truncate">Government Resource Finder</p>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <span aria-live="polite" className="sr-only">{saveContent.announcement}</span>
-          <span aria-hidden="true" className="hidden items-center gap-2 text-xs text-[#68778b] sm:flex" title={saveContent.announcement}>
-            <span className={`h-2.5 w-2.5 rounded-full ${saveContent.dotClassName}`} />
+          <span aria-hidden="true" className="hidden items-center gap-1 text-xs text-[#68778b] sm:flex" title={saveContent.announcement}>
+            {saveContent.saved ? (
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0 text-current"
+              >
+                <path
+                  d="m3 8 3 3 7-7"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+            )}
             {saveContent.label}
           </span>
           <button
@@ -507,77 +593,239 @@ function AppHeader({
   );
 }
 
-function Field({
+function QuestionField({
   label,
   value,
   onChange,
+  onContinue,
   placeholder,
-  helper,
   type = "text",
   autoComplete,
-  status,
-  provenance,
-  wide = false,
   multiline = false,
+  options,
+  multipleOptions = false,
+  optionDisplay = "checklist",
+  optionLayout = "row-first",
+  compactOptions = false,
+  showLabel = true,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onContinue?: () => void;
   placeholder?: string;
-  helper?: string;
   type?: "text" | "email" | "url";
   autoComplete?: string;
-  status?: "captured" | "missing";
-  provenance?: string;
-  wide?: boolean;
   multiline?: boolean;
+  options?: readonly string[];
+  multipleOptions?: boolean;
+  optionDisplay?: "checklist" | "dropdown";
+  optionLayout?: "row-first" | "column-first";
+  compactOptions?: boolean;
+  showLabel?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const effectiveStatus = status ?? (isSupportedProfileValue(value) ? "captured" : "missing");
   const className =
-    "mt-2 min-h-12 w-full rounded-2xl border border-[#0a1930]/12 bg-white px-4 py-3 text-base text-[#0a1930] outline-none transition placeholder:text-[#9ba29d] focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10 sm:text-sm";
-  return (
-    <div className={wide ? "sm:col-span-2" : ""}>
-      <span className="flex items-center justify-between gap-3 text-sm font-semibold text-[#36475f]">
-        <span>{label}</span>
-        <span className="flex items-center gap-2">
-          <span aria-hidden="true" className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${effectiveStatus === "captured" ? "bg-[#dff2e4] text-[#205d3a]" : "bg-[#fff1ce] text-[#735511]"}`}>
-            {effectiveStatus === "captured" ? provenance ?? "Source not recorded" : "Still unknown"}
-          </span>
-          <button
-            type="button"
-            aria-label={`Edit ${label}`}
-            onClick={() => (multiline ? textareaRef.current : inputRef.current)?.focus()}
-            className="grid h-8 w-8 place-items-center rounded-full border border-[#0a1930]/10 bg-white text-base text-[#084b9a] transition hover:border-[#084b9a]/35"
+    "min-h-12 w-full rounded-2xl border border-[#0a1930]/12 bg-white px-4 py-3 text-base text-[#0a1930] outline-none transition placeholder:text-[#89939f] focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10 sm:text-sm";
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    if (
+      event.key !== "Enter"
+      || event.shiftKey
+      || event.nativeEvent.isComposing
+      || !onContinue
+    ) return;
+    event.preventDefault();
+    onContinue();
+  }
+
+  const selectedOptions = new Set(
+    multipleOptions
+      ? value.split(";").map((option) => option.trim()).filter(Boolean)
+      : value ? [value] : [],
+  );
+
+  function toggleOption(option: string, checked: boolean) {
+    if (!options) return;
+    if (!multipleOptions) {
+      onChange(checked ? option : "");
+      return;
+    }
+    const nextOptions = new Set(selectedOptions);
+    if (checked) nextOptions.add(option);
+    else nextOptions.delete(option);
+    onChange(options.filter((item) => nextOptions.has(item)).join("; "));
+  }
+
+  const optionChecklist = options ? (
+    <fieldset className={`grid gap-2 sm:grid-cols-2 ${optionLayout === "column-first" ? "sm:grid-flow-col sm:grid-rows-3" : ""}`}>
+      <legend className="sr-only">{label}</legend>
+      {options.map((option) => {
+        const checked = selectedOptions.has(option);
+        return (
+          <label
+            key={option}
+            className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-sm font-semibold transition ${checked ? "border-[#0968d8]/45 bg-[#edf5ff] text-[#06275c]" : "border-[#0a1930]/10 bg-white text-[#45556b] hover:border-[#0968d8]/30"}`}
           >
-            ✎
-          </button>
-        </span>
-      </span>
-      {multiline ? (
-        <textarea
-          ref={textareaRef}
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(event) => toggleOption(option, event.target.checked)}
+              onKeyDown={(event) => {
+                if (value) handleKeyDown(event);
+              }}
+              className="h-4 w-4 shrink-0 accent-[#0968d8]"
+            />
+            <span>{option}</span>
+          </label>
+        );
+      })}
+    </fieldset>
+  ) : null;
+
+  return (
+    <div className="block">
+      <span className={showLabel ? "mb-2 block text-sm font-semibold text-[#36475f]" : "sr-only"}>{label}</span>
+      {options && (compactOptions || optionDisplay === "dropdown") && !multipleOptions ? (
+        <select
           aria-label={label}
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (value) handleKeyDown(event);
+          }}
+          className={`${className} cursor-pointer`}
+        >
+          <option value="">{placeholder}</option>
+          {value && !options.includes(value) && <option value={value}>{value}</option>}
+          {options.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+      ) : options && compactOptions ? (
+        <details className="rounded-2xl border border-[#0a1930]/12 bg-white">
+          <summary className="min-h-12 cursor-pointer px-4 py-3 text-sm font-semibold text-[#36475f]">
+            {value || placeholder}
+          </summary>
+          <div className="border-t border-[#0a1930]/8 p-3">
+            {optionChecklist}
+          </div>
+        </details>
+      ) : options ? (
+        optionChecklist
+      ) : multiline ? (
+        <textarea
+          aria-label={label}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={4}
           className={className}
         />
       ) : (
         <input
-          ref={inputRef}
           aria-label={label}
           type={type}
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           autoComplete={autoComplete}
           className={className}
         />
       )}
-      {helper && <span className="mt-2 block text-xs leading-5 text-[#7a847d]">{helper}</span>}
+    </div>
+  );
+}
+
+function ProfileReviewField({
+  definition,
+  value,
+  onSave,
+  required = false,
+  wide = false,
+}: {
+  definition: ProfileFieldDefinition;
+  value: string;
+  onSave: (value: string) => void;
+  required?: boolean;
+  wide?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  function save() {
+    onSave(draft.trim());
+    setEditing(false);
+  }
+
+  return (
+    <div className={`profile-review-field ${wide ? "sm:col-span-2" : ""}`}>
+      {editing ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            save();
+          }}
+        >
+          <QuestionField
+            label={definition.label}
+            value={draft}
+            onChange={setDraft}
+            onContinue={save}
+            placeholder={definition.placeholder}
+            type={definition.type}
+            autoComplete={definition.autoComplete}
+            multiline={definition.multiline}
+            options={definition.options}
+            multipleOptions={definition.multipleOptions}
+            optionDisplay={definition.optionDisplay}
+            optionLayout={definition.optionLayout}
+            compactOptions
+          />
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(value);
+                setEditing(false);
+              }}
+              className="min-h-10 rounded-full border border-[#0a1930]/12 bg-white px-4 py-2 text-xs font-semibold text-[#536176]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="min-h-10 rounded-full bg-[#06275c] px-4 py-2 text-xs font-semibold text-white"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex items-start justify-between gap-5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[#36475f]">
+              {definition.label}{" "}
+              {required ? (
+                <><span aria-hidden="true" className="text-[#0968d8]">*</span><span className="sr-only">Required</span></>
+              ) : (
+                <span className="font-semibold text-[#89939f]">(optional)</span>
+              )}
+            </p>
+            <p className={`mt-2 whitespace-pre-wrap text-sm leading-6 ${value ? "font-medium text-[#536176]" : "text-[#89939f]"}`}>
+              {value || "Not provided"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(value);
+              setEditing(true);
+            }}
+            className="shrink-0 rounded-full border border-[#0a1930]/12 bg-white px-3.5 py-2 text-xs font-semibold text-[#084b9a] transition hover:border-[#084b9a]/35 hover:bg-[#f7f9fc]"
+          >
+            Edit
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -596,11 +844,13 @@ function DecisionPill({ decision }: { decision: Decision }) {
 function SearchExperience() {
   return (
     <section className="search-experience" aria-live="polite" aria-busy="true">
-      <div className="thinking-orb" aria-hidden="true">
-        <span className="thinking-orb-core" />
-        <span className="thinking-orb-ring thinking-orb-ring-one" />
-        <span className="thinking-orb-ring thinking-orb-ring-two" />
-      </div>
+      <ThinkingOrb
+        state="searching"
+        size={64}
+        theme="light"
+        className="search-thinking-orb"
+        aria-label="Searching current government opportunities"
+      />
       <h1 data-stage-heading tabIndex={-1}>Finding your strongest routes</h1>
       <p>Searching current opportunities and checking fit…</p>
     </section>
@@ -684,8 +934,6 @@ export default function OpportunityWorkbench() {
   const [stage, setStage] = useState<Stage>("intake");
   const [profile, setProfile] = useState<CompanyProfile>(EMPTY_PROFILE);
   const [profileFieldOrigins, setProfileFieldOrigins] = useState<ProfileFieldOrigins>({});
-  const [externalProcessingConsent, setExternalProcessingConsent] =
-    useState(false);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [manualText, setManualText] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -705,8 +953,9 @@ export default function OpportunityWorkbench() {
   const [sourceSummaries, setSourceSummaries] = useState<SourceSearchSummary[]>([]);
   const [searchStatus, setSearchStatus] = useState<"idle" | "loading" | "error">("idle");
   const [searchError, setSearchError] = useState("");
-  const [reviewMode, setReviewMode] = useState<"questions" | "confirm">("confirm");
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("confirm");
   const [reviewQuestionKeys, setReviewQuestionKeys] = useState<Array<keyof CompanyProfile>>([]);
+  const [reviewOptionalKeys, setReviewOptionalKeys] = useState<Array<keyof CompanyProfile>>([]);
   const [reviewQuestionIndex, setReviewQuestionIndex] = useState(0);
   const [durableCredentials, setDurableCredentials] =
     useState<WorkspaceClientCredentials | null>(null);
@@ -719,7 +968,6 @@ export default function OpportunityWorkbench() {
   const durableSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const durableGenerationRef = useRef(0);
   const lastSyncedPayloadRef = useRef("");
-  const processingDetailsRef = useRef<HTMLDetailsElement>(null);
   const stageFocusKeyRef = useRef("");
 
   useEffect(() => {
@@ -732,7 +980,7 @@ export default function OpportunityWorkbench() {
           const parsed = JSON.parse(stored) as StoredWorkbenchSnapshot;
           const hasCurrentApiDiscovery = parsed.version === STORAGE_VERSION
             && parsed.discoveryOrigin === "api";
-          if (parsed.profile) setProfile({ ...EMPTY_PROFILE, ...parsed.profile });
+          if (parsed.profile) setProfile(profileForDisplay(parsed.profile));
           if (parsed.profileFieldOrigins) setProfileFieldOrigins(parsed.profileFieldOrigins);
           if (parsed.stage) {
             const requiresDiscovery = parsed.stage === "results" || parsed.stage === "workspace";
@@ -781,7 +1029,7 @@ export default function OpportunityWorkbench() {
             setChecklistByOpportunity(
               remote.workspace.checklistByOpportunity,
             );
-            setProfile((current) => ({
+            setProfile((current) => profileForDisplay({
               ...current,
               founderName: remote.founderContact.name,
               founderRole: remote.founderContact.role,
@@ -966,14 +1214,6 @@ export default function OpportunityWorkbench() {
     ? checklistByOpportunity[selectedOpportunityId] ?? {}
     : {};
   const completedCount = INITIAL_CHECKLIST.filter((item) => activeChecklist[item.id]).length;
-  const founderContactFields = [
-    { key: "founderName" as const, label: "Founder name" },
-    { key: "founderRole" as const, label: "Founder role" },
-    { key: "founderEmail" as const, label: "Founder email" },
-  ];
-  const missingFounderContact = founderContactFields.filter(
-    ({ key }) => !isSupportedProfileField(key, profile[key]),
-  );
   const applicationFieldStatus = selectedOpportunity?.applicationFields.map((field) => {
     const value = field.profileKey ? profile[field.profileKey] : "";
     return { ...field, value: String(value ?? ""), known: isSupportedProfileField(field.profileKey, value) };
@@ -988,25 +1228,52 @@ export default function OpportunityWorkbench() {
     : hydrated
       ? "device-only"
       : "saving";
-  const hasConsentError = intakeStatus === "error"
-    && intakeMessage.startsWith("Consent is required");
-  useEffect(() => {
-    if (hasConsentError && processingDetailsRef.current) {
-      processingDetailsRef.current.open = true;
-    }
-  }, [hasConsentError]);
   const currentReviewQuestionKey = reviewQuestionKeys[reviewQuestionIndex];
-  const currentReviewQuestion = REQUIRED_REVIEW_QUESTIONS.find(
+  const currentReviewQuestion = REQUIRED_PROFILE_QUESTIONS.find(
     ({ key }) => key === currentReviewQuestionKey,
   );
+  const reviewOptionalFields = reviewOptionalKeys
+    .map((key) => OPTIONAL_PROFILE_FIELDS.find((field) => field.key === key))
+    .filter((field): field is ProfileFieldDefinition => Boolean(field));
+  const reviewOptionalGroups = OPTIONAL_PROFILE_GROUPS
+    .map((group) => ({
+      ...group,
+      fields: group.keys
+        .map((key) => reviewOptionalFields.find((field) => field.key === key))
+        .filter((field): field is ProfileFieldDefinition => Boolean(field)),
+    }))
+    .filter((group) => group.fields.length > 0);
+  const missingRequiredProfileFields = REQUIRED_PROFILE_QUESTIONS.filter(
+    ({ key }) => !isSupportedProfileField(key, profile[key]),
+  );
+  const canSaveProfile = isSupportedProfileField("founderName", profile.founderName)
+    && isSupportedProfileField("founderEmail", profile.founderEmail);
+
+  function advanceRequiredQuestion() {
+    if (!currentReviewQuestion) return;
+    if (!isSupportedProfileValue(profile[currentReviewQuestion.key])) return;
+    if (reviewQuestionIndex === reviewQuestionKeys.length - 1) {
+      setReviewMode("optional");
+    } else {
+      setReviewQuestionIndex((index) => index + 1);
+    }
+  }
+
+  function submitFormOnEnter(
+    event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) {
+    if (
+      event.key !== "Enter"
+      || event.shiftKey
+      || event.nativeEvent.isComposing
+    ) return;
+    event.preventDefault();
+    if (intakeStatus !== "loading") event.currentTarget.form?.requestSubmit();
+  }
 
   function openProfileReview() {
     setReviewMode("confirm");
     setStage("review");
-  }
-
-  function fieldProvenance(key: keyof CompanyProfile) {
-    return profileOriginLabel(profileFieldOrigins[key], String(profile[key] ?? ""));
   }
 
   function resetWorkspace() {
@@ -1014,7 +1281,6 @@ export default function OpportunityWorkbench() {
     setStage("intake");
     setProfile(EMPTY_PROFILE);
     setProfileFieldOrigins({});
-    setExternalProcessingConsent(false);
     setWebsiteUrl("");
     setManualText("");
     setUploadedFiles([]);
@@ -1032,6 +1298,7 @@ export default function OpportunityWorkbench() {
     setSearchError("");
     setReviewMode("confirm");
     setReviewQuestionKeys([]);
+    setReviewOptionalKeys([]);
     setReviewQuestionIndex(0);
     setGrantsHealth({ status: "idle", message: "" });
     setSpendingHealth({ status: "idle", message: "" });
@@ -1047,11 +1314,7 @@ export default function OpportunityWorkbench() {
 
   async function continueIntake(event: FormEvent) {
     event.preventDefault();
-    if (!externalProcessingConsent) {
-      setIntakeStatus("error");
-      setIntakeMessage("Consent is required before supplied evidence is sent to OpenAI.");
-      return;
-    }
+    if (intakeStatus === "loading") return;
     const hasWebsite = websiteUrl.trim().length > 0;
     const hasEvidence = manualText.trim().length >= 35;
     const hasFiles = uploadedFiles.length > 0;
@@ -1064,7 +1327,6 @@ export default function OpportunityWorkbench() {
     setIntakeMessage("");
     try {
       const form = new FormData();
-      form.set("externalProcessingConsent", "true");
       if (hasWebsite) form.set("website", websiteUrl.trim());
       if (hasEvidence) form.set("manualText", manualText.trim());
       for (const upload of uploadedFiles) form.append("files", upload.file, upload.name);
@@ -1083,7 +1345,7 @@ export default function OpportunityWorkbench() {
         ...EMPTY_PROFILE,
         ...(manualProfile ?? {}),
         ...extractedProfile,
-        website: websiteUrl.trim(),
+        website: websiteUrl.trim() || manualProfile?.website || "",
       };
       const sourceNames = new Map((result.sources ?? []).map((source) => [source.id, source.displayName]));
       const nextEvidence = result.evidence?.length
@@ -1095,25 +1357,24 @@ export default function OpportunityWorkbench() {
       const sourceWarnings = (result.sources ?? []).flatMap((source) => source.message ? [source.message] : []);
       setDocumentMessage(sourceWarnings[0] ?? "Website and file evidence were reviewed together.");
 
-      const confirmedCandidate: CompanyProfile = {
-        ...nextProfile,
-        applicantType: nextProfile.applicantType || "Unknown — founder input needed",
-        ownership: nextProfile.ownership || "Unknown — founder input needed",
-        samStatus: nextProfile.samStatus || "Unknown",
-      };
-      const missingQuestionKeys = REQUIRED_REVIEW_QUESTIONS
-        .filter(({ key }) => !isSupportedProfileValue(confirmedCandidate[key]))
+      const displayProfile = profileForDisplay(nextProfile);
+      const requiredQuestionKeys = REQUIRED_PROFILE_QUESTIONS
+        .filter(({ key }) => !isSupportedProfileField(key, displayProfile[key]))
         .map(({ key }) => key);
-      setProfile(confirmedCandidate);
+      const optionalQuestionKeys = OPTIONAL_PROFILE_FIELDS
+        .filter(({ key }) => !isSupportedProfileField(key, displayProfile[key]))
+        .map(({ key }) => key);
+      setProfile(displayProfile);
       setProfileFieldOrigins(normalizedProfileOrigins(
         result,
-        confirmedCandidate,
+        displayProfile,
         manualProfile,
         hasWebsite,
       ));
-      setReviewQuestionKeys(missingQuestionKeys);
+      setReviewQuestionKeys(requiredQuestionKeys);
+      setReviewOptionalKeys(optionalQuestionKeys);
       setReviewQuestionIndex(0);
-      setReviewMode(missingQuestionKeys.length ? "questions" : "confirm");
+      setReviewMode(requiredQuestionKeys.length ? "required" : "optional");
       setMatches([]);
       setPrograms([]);
       setHistoricalAwards([]);
@@ -1158,10 +1419,11 @@ export default function OpportunityWorkbench() {
   }
 
   function updateProfile(key: keyof CompanyProfile, value: string) {
-    setProfile((current) => ({ ...current, [key]: value }));
+    const nextValue = isSupportedProfileValue(value) ? value : "";
+    setProfile((current) => ({ ...current, [key]: nextValue }));
     setProfileFieldOrigins((current) => ({
       ...current,
-      [key]: isSupportedProfileValue(value)
+      [key]: isSupportedProfileValue(nextValue)
         ? { origin: "founder-confirmed" }
         : { origin: "unknown" },
     }));
@@ -1182,7 +1444,6 @@ export default function OpportunityWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           profile: confirmedProfile,
-          externalProcessingConsent,
         }),
       });
       const result = (await response.json()) as GovernmentSourceSearchResult & { error?: string };
@@ -1231,9 +1492,9 @@ export default function OpportunityWorkbench() {
   }
 
   return (
-    <main className="app-shell min-h-screen overflow-x-hidden text-[#0a1930]">
+    <main className="app-shell flex min-h-screen flex-col overflow-x-hidden text-[#0a1930]">
       <AppHeader onReset={resetWorkspace} saveMode={saveMode} />
-      <div className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-8 sm:pb-20 sm:pt-7 lg:px-12">
+      <div className="mx-auto w-full max-w-7xl flex-1 px-4 pb-4 pt-6 sm:px-8 sm:pt-7 lg:px-12">
         {stage !== "intake" && <StepRail stage={stage} />}
 
         {stage === "intake" && (
@@ -1256,6 +1517,7 @@ export default function OpportunityWorkbench() {
                     type="url"
                     value={websiteUrl}
                     onChange={(event) => setWebsiteUrl(event.target.value)}
+                    onKeyDown={submitFormOnEnter}
                     placeholder="https://yourcompany.com"
                     className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3.5 text-base outline-none transition focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
                   />
@@ -1291,47 +1553,26 @@ export default function OpportunityWorkbench() {
                     id="manual-summary"
                     value={manualText}
                     onChange={(event) => setManualText(event.target.value)}
+                    onKeyDown={submitFormOnEnter}
                     rows={5}
                     placeholder="Describe the product, customers, location, project, and what funding would support."
                     className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
                   />
-
-                  <details
-                    ref={processingDetailsRef}
-                    className={`mt-4 rounded-xl border px-4 py-3 text-sm ${hasConsentError ? "border-[#c96a55]/45 bg-[#fff8f6]" : "border-[#0a1930]/10 bg-[#f8fafd]"}`}
-                  >
-                    <summary className="cursor-pointer font-bold text-[#36475f]">How your information is processed</summary>
-                    <p className="mt-2 text-xs leading-5 text-[#66758a]">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
-                    <label className="mt-3 flex cursor-pointer items-start gap-3 text-xs font-semibold leading-5">
-                      <input
-                        type="checkbox"
-                        checked={externalProcessingConsent}
-                        onChange={(event) => {
-                          setExternalProcessingConsent(event.target.checked);
-                          setIntakeMessage("");
-                        }}
-                        aria-invalid={hasConsentError}
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-[#0968d8]"
-                      />
-                      <span>I consent to this processing for the evidence I submit.</span>
-                    </label>
-                    {hasConsentError && (
-                      <p role="alert" className="mt-3 border-t border-[#c96a55]/20 pt-3 text-xs font-bold text-[#8b3c2b]">
-                        Check the consent box to continue.
-                      </p>
-                    )}
-                  </details>
 
                   <button
                     type="submit"
                     disabled={intakeStatus === "loading"}
                     className="mt-4 w-full rounded-xl bg-[#06275c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#084b9a] disabled:cursor-wait disabled:opacity-65"
                   >
-                    {intakeStatus === "loading" ? "Building your profile…" : "Continue"}
+                    {intakeStatus === "loading" ? (
+                      "Building your profile…"
+                    ) : (
+                      "Continue"
+                    )}
                   </button>
                 </form>
 
-                {intakeMessage && !hasConsentError && (
+                {intakeMessage && (
                   <div role={intakeStatus === "error" ? "alert" : "status"} className={`mt-4 rounded-2xl px-4 py-3 text-sm ${intakeStatus === "error" ? "bg-[#fff0e9] text-[#8b3c21]" : "bg-[#edf5ef] text-[#084b9a]"}`}>
                     {intakeMessage}
                   </div>
@@ -1344,23 +1585,29 @@ export default function OpportunityWorkbench() {
 
         {stage === "review" && searchStatus === "loading" && <SearchExperience />}
 
-        {stage === "review" && searchStatus !== "loading" && reviewMode === "questions" && currentReviewQuestion && (
+        {stage === "review" && searchStatus !== "loading" && reviewMode === "required" && currentReviewQuestion && (
           <section className="approval-flow mx-auto max-w-2xl pt-12 sm:pt-16">
             <div className="approval-flow-heading">
-              <p>{reviewQuestionIndex + 1} of {reviewQuestionKeys.length}</p>
-              <h1 data-stage-heading tabIndex={-1}>{currentReviewQuestion.label}</h1>
+              <p>Required question {reviewQuestionIndex + 1} of {reviewQuestionKeys.length}</p>
+              <h1 data-stage-heading tabIndex={-1}>{currentReviewQuestion.question}</h1>
               <p>{currentReviewQuestion.why}</p>
             </div>
             <div className="approval-question-card">
               <div className="approval-question-body">
-                <Field
+                <QuestionField
                   label={currentReviewQuestion.label}
                   value={String(profile[currentReviewQuestion.key] ?? "")}
                   onChange={(value) => updateProfile(currentReviewQuestion.key, value)}
+                  onContinue={advanceRequiredQuestion}
                   placeholder={currentReviewQuestion.placeholder}
+                  type={currentReviewQuestion.type}
+                  autoComplete={currentReviewQuestion.autoComplete}
                   multiline={currentReviewQuestion.multiline}
-                  status={isSupportedProfileValue(profile[currentReviewQuestion.key]) ? "captured" : "missing"}
-                  provenance={fieldProvenance(currentReviewQuestion.key)}
+                  options={currentReviewQuestion.options}
+                  multipleOptions={currentReviewQuestion.multipleOptions}
+                  optionDisplay={currentReviewQuestion.optionDisplay}
+                  optionLayout={currentReviewQuestion.optionLayout}
+                  showLabel={false}
                 />
               </div>
               <div className="approval-question-footer">
@@ -1371,17 +1618,93 @@ export default function OpportunityWorkbench() {
                 >
                   Back
                 </button>
-                <ProgressRail current={reviewQuestionIndex} total={reviewQuestionKeys.length} />
+                <ProgressRail current={reviewQuestionIndex} total={reviewQuestionKeys.length + 2} />
                 <button
                   type="button"
                   disabled={!isSupportedProfileValue(profile[currentReviewQuestion.key])}
-                  onClick={() => {
-                    if (reviewQuestionIndex === reviewQuestionKeys.length - 1) setReviewMode("confirm");
-                    else setReviewQuestionIndex((index) => index + 1);
-                  }}
+                  onClick={advanceRequiredQuestion}
                   className="approval-continue-button"
                 >
-                  {reviewQuestionIndex === reviewQuestionKeys.length - 1 ? "Review profile" : "Continue"}
+                  {reviewQuestionIndex === reviewQuestionKeys.length - 1 ? "Optional details" : "Continue"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {stage === "review" && searchStatus !== "loading" && reviewMode === "optional" && (
+          <section className="approval-flow mx-auto max-w-4xl pt-12 sm:pt-16">
+            <div className="approval-flow-heading">
+              <p>Optional details</p>
+              <h1 data-stage-heading tabIndex={-1}>Anything else you want to add?</h1>
+              <p>Add any remaining details that are useful to you. These fields are optional, and you can leave every one blank.</p>
+            </div>
+            <div className="approval-question-card">
+              <div className="approval-question-body">
+                {reviewOptionalFields.length ? (
+                  <div className="space-y-9">
+                    {reviewOptionalGroups.map((group) => (
+                      <section key={group.title}>
+                        <div className="mb-5">
+                          <h2 className="text-2xl font-semibold tracking-[-0.035em] text-[#0a1930] sm:text-3xl">{group.title}</h2>
+                          <p className="mt-2 text-sm leading-6 text-[#68778b]">{group.description}</p>
+                        </div>
+                        <div className="grid gap-5 sm:grid-cols-2">
+                          {group.fields.map((field) => (
+                            <div key={field.key} className={field.multiline || field.options ? "sm:col-span-2" : ""}>
+                              <QuestionField
+                                label={field.question}
+                                value={String(profile[field.key] ?? "")}
+                                onChange={(value) => updateProfile(field.key, value)}
+                                onContinue={() => setReviewMode("save")}
+                                placeholder={field.placeholder}
+                                type={field.type}
+                                autoComplete={field.autoComplete}
+                                multiline={field.multiline}
+                                options={field.options}
+                                multipleOptions={field.multipleOptions}
+                                optionDisplay={field.optionDisplay}
+                                optionLayout={field.optionLayout}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm leading-6 text-[#5f6f84]">Your intake already included every optional profile field. Continue to review the completed profile.</p>
+                )}
+              </div>
+              <div className="approval-question-footer">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (reviewQuestionKeys.length) {
+                      setReviewMode("required");
+                      setReviewQuestionIndex(reviewQuestionKeys.length - 1);
+                    } else {
+                      setStage("intake");
+                    }
+                  }}
+                  className="approval-back-button"
+                >
+                  Back
+                </button>
+                <div className="grid justify-items-center gap-2">
+                  <ProgressRail current={reviewQuestionKeys.length} total={reviewQuestionKeys.length + 2} />
+                  <p className="text-center text-xs font-semibold text-[#68778b]">
+                    {reviewOptionalFields.length
+                      ? `${reviewOptionalFields.length} optional field${reviewOptionalFields.length === 1 ? "" : "s"}`
+                      : "Optional details complete"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReviewMode("save")}
+                  className="approval-continue-button"
+                >
+                  Continue
                 </button>
               </div>
             </div>
@@ -1390,125 +1713,146 @@ export default function OpportunityWorkbench() {
 
         {stage === "review" && searchStatus !== "loading" && reviewMode === "confirm" && (
           <section className="pt-10">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
               <div>
                 <h1 data-stage-heading tabIndex={-1} className="text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">Confirm your profile.</h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6f84]">Unknown fields stay unknown. They can lower confidence, but the system will not guess.</p>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6f84]">Review the completed profile below. Choose Edit beside any value you want to change, then save that field when you are done.</p>
               </div>
-              <button type="button" onClick={() => setStage("intake")} className="w-fit rounded-full border border-[#0a1930]/12 bg-white px-4 py-2.5 text-sm font-semibold">
-                Change intake
-              </button>
             </div>
 
-            <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
-              <div className="space-y-5">
-                <section aria-labelledby="founder-contact-heading" className="rounded-[2rem] border border-[#7eb08e]/25 bg-[#edf5ef] p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-7">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h2 id="founder-contact-heading" className="text-2xl font-semibold tracking-[-0.035em]">What you added</h2>
-                      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f6f84]">Values already found in intake evidence stay filled. We ask only for contact details that are still missing.</p>
+            <div className="mt-8 max-w-5xl space-y-6">
+              <section className="rounded-[2rem] border border-[#0a1930]/10 bg-white/88 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-8">
+                {PROFILE_REVIEW_GROUPS.map((group, groupIndex) => (
+                  <section
+                    key={group.title}
+                    className={groupIndex > 0 ? "mt-10 border-t border-[#0a1930]/8 pt-10" : ""}
+                  >
+                    <div className="pb-5">
+                      <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-[2.15rem]">{group.title}</h2>
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f6f84]">{group.description}</p>
                     </div>
-                    <span className={`w-fit shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${missingFounderContact.length ? "bg-[#fff1ce] text-[#735511]" : "bg-[#dff2e4] text-[#205d3a]"}`}>
-                      {missingFounderContact.length ? `${missingFounderContact.length} missing` : "Contact ready"}
-                    </span>
-                  </div>
-                  <div className="mt-6 grid gap-5 md:grid-cols-3">
-                    <Field
-                      label="Founder name"
-                      value={profile.founderName ?? ""}
-                      onChange={(value) => updateProfile("founderName", value)}
-                      placeholder="Full name"
-                      autoComplete="name"
-                      status={isSupportedProfileValue(profile.founderName) ? "captured" : "missing"}
-                      provenance={fieldProvenance("founderName")}
-                    />
-                    <Field
-                      label="Role"
-                      value={profile.founderRole ?? ""}
-                      onChange={(value) => updateProfile("founderRole", value)}
-                      placeholder="CEO, founder, grants lead…"
-                      autoComplete="organization-title"
-                      status={isSupportedProfileValue(profile.founderRole) ? "captured" : "missing"}
-                      provenance={fieldProvenance("founderRole")}
-                    />
-                    <Field
-                      label="Email"
-                      value={profile.founderEmail ?? ""}
-                      onChange={(value) => updateProfile("founderEmail", value)}
-                      placeholder="name@company.com"
-                      type="email"
-                      autoComplete="email"
-                      status={isSupportedProfileField("founderEmail", profile.founderEmail) ? "captured" : "missing"}
-                      provenance={fieldProvenance("founderEmail")}
-                    />
-                  </div>
-                </section>
+                    <div className="grid sm:grid-cols-2">
+                      {group.keys.map((key) => {
+                        const definition = PROFILE_FIELD_DEFINITIONS.find((field) => field.key === key);
+                        if (!definition) return null;
+                        return (
+                          <ProfileReviewField
+                            key={key}
+                            definition={definition}
+                            value={String(profile[key] ?? "")}
+                            onSave={(value) => updateProfile(key, value)}
+                            required={REQUIRED_PROFILE_FIELD_KEYS.has(key)}
+                            wide={Boolean(definition.multiline || definition.multipleOptions)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </section>
 
-                <section aria-labelledby="company-profile-heading" className="rounded-[2rem] border border-[#0a1930]/10 bg-white/85 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.06)] sm:p-7">
-                  <div className="mb-6">
-                    <h2 id="company-profile-heading" className="text-2xl font-semibold tracking-[-0.035em]">What we know</h2>
-                    <p className="mt-2 text-sm leading-6 text-[#5f6f84]">Use the edit icon beside any value to change only that field.</p>
-                  </div>
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="Company name" value={profile.companyName} onChange={(value) => updateProfile("companyName", value)} provenance={fieldProvenance("companyName")} placeholder="Legal or public name" autoComplete="organization" />
-                    <Field label="Website" value={profile.website} onChange={(value) => updateProfile("website", value)} provenance={fieldProvenance("website")} placeholder="https://…" type="url" autoComplete="url" />
-                    <Field wide multiline label="What the company does" value={profile.description} onChange={(value) => updateProfile("description", value)} provenance={fieldProvenance("description")} />
-                    <Field label="Industry" value={profile.industry} onChange={(value) => updateProfile("industry", value)} provenance={fieldProvenance("industry")} />
-                    <Field label="Technology" value={profile.technology} onChange={(value) => updateProfile("technology", value)} provenance={fieldProvenance("technology")} />
-                    <Field label="Location" value={profile.location} onChange={(value) => updateProfile("location", value)} provenance={fieldProvenance("location")} placeholder="City, state, country" autoComplete="address-level2" />
-                    <Field label="Employees" value={profile.employees} onChange={(value) => updateProfile("employees", value)} provenance={fieldProvenance("employees")} />
-                    <Field label="Revenue" value={profile.revenue} onChange={(value) => updateProfile("revenue", value)} provenance={fieldProvenance("revenue")} />
-                    <Field label="Capital raised" value={profile.capitalRaised} onChange={(value) => updateProfile("capitalRaised", value)} provenance={fieldProvenance("capitalRaised")} />
-                    <Field label="Funding need" value={profile.capitalNeed} onChange={(value) => updateProfile("capitalNeed", value)} provenance={fieldProvenance("capitalNeed")} />
-                    <Field wide multiline label="Use of funds" value={profile.useOfFunds} onChange={(value) => updateProfile("useOfFunds", value)} provenance={fieldProvenance("useOfFunds")} />
-                    <Field label="Target customers" value={profile.customers} onChange={(value) => updateProfile("customers", value)} provenance={fieldProvenance("customers")} />
-                    <Field label="R&D activities" value={profile.researchActivities} onChange={(value) => updateProfile("researchActivities", value)} provenance={fieldProvenance("researchActivities")} />
-                    <Field label="Applicant type" value={profile.applicantType} onChange={(value) => updateProfile("applicantType", value)} provenance={fieldProvenance("applicantType")} />
-                    <Field label="Ownership" value={profile.ownership} onChange={(value) => updateProfile("ownership", value)} provenance={fieldProvenance("ownership")} placeholder="Unknown is acceptable" />
-                    <Field label="SAM.gov status" value={profile.samStatus} onChange={(value) => updateProfile("samStatus", value)} provenance={fieldProvenance("samStatus")} />
-                    <Field label="UEI" value={profile.uei} onChange={(value) => updateProfile("uei", value)} provenance={fieldProvenance("uei")} placeholder="Leave blank if unknown" />
-                  </div>
-                </section>
+              <section className="rounded-[2rem] border border-[#0a1930]/10 bg-white/88 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-8">
+                <div className="pb-5">
+                  <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-[2.15rem]">Your profile</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f6f84]">Optional contact details used only when you choose to save this profile.</p>
+                </div>
+                <div className="grid sm:grid-cols-2">
+                  {SAVE_PROFILE_FIELDS.map((definition) => (
+                    <ProfileReviewField
+                      key={definition.key}
+                      definition={definition}
+                      value={String(profile[definition.key] ?? "")}
+                      onSave={(value) => updateProfile(definition.key, value)}
+                      wide={definition.key === "founderEmail"}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <div className="flex flex-col gap-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-xl text-sm leading-6 text-[#5f6f84]">
+                  {missingRequiredProfileFields.length
+                    ? `Complete ${missingRequiredProfileFields.map((field) => field.label.toLowerCase()).join(", ")} before continuing.`
+                    : "Your required profile details are complete. Optional blank fields will stay blank."}
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewOptionalKeys(OPTIONAL_PROFILE_FIELDS
+                        .filter(({ key }) => !isSupportedProfileField(key, profile[key]))
+                        .map(({ key }) => key));
+                      setReviewMode("optional");
+                    }}
+                    className="min-h-12 rounded-xl border border-[#0a1930]/12 bg-white px-5 py-3 text-sm font-semibold text-[#536176]"
+                  >
+                    Review optional details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void buildMap()}
+                    disabled={missingRequiredProfileFields.length > 0}
+                    className="min-h-12 rounded-xl bg-[#06275c] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#084b9a] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Find my resources
+                  </button>
+                </div>
               </div>
+            </div>
+          </section>
+        )}
 
-              <aside className="space-y-4 xl:sticky xl:top-24">
-                <div className="rounded-[1.75rem] border border-[#0a1930]/10 bg-[#06275c] p-6 text-white">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#acd8ba]">Profile provenance</p>
-                  <ul className="mt-5 grid gap-3 text-sm leading-6 text-white/85">
-                    {sourceEvidence.length ? sourceEvidence.map((item) => <li key={item}>{item}</li>) : <li>No source recorded yet.</li>}
-                    <li>All fields remain editable and require founder confirmation.</li>
-                  </ul>
+        {stage === "review" && searchStatus !== "loading" && reviewMode === "save" && (
+          <section className="approval-flow mx-auto max-w-3xl pt-12 sm:pt-16">
+            <div className="approval-flow-heading">
+              <p>Save profile</p>
+              <h1 data-stage-heading tabIndex={-1}>Would you like to save your profile?</h1>
+              <p>Add contact details so they can stay with this profile, or skip this step and continue without them.</p>
+            </div>
+            <div className="approval-question-card">
+              <div className="approval-question-body">
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {SAVE_PROFILE_FIELDS.map((field) => (
+                    <div key={field.key} className={field.key === "founderEmail" ? "sm:col-span-2" : ""}>
+                      <QuestionField
+                        label={field.question}
+                        value={String(profile[field.key] ?? "")}
+                        onChange={(value) => updateProfile(field.key, value)}
+                        onContinue={() => {
+                          if (canSaveProfile) setReviewMode("confirm");
+                        }}
+                        placeholder={field.placeholder}
+                        type={field.type}
+                        autoComplete={field.autoComplete}
+                      />
+                    </div>
+                  ))}
                 </div>
-                <div className={`rounded-[1.75rem] border p-6 ${missingFounderContact.length ? "border-[#d9b45f]/35 bg-[#fff7e5]" : "border-[#8fc59f]/40 bg-[#edf7ef]"}`}>
-                  <p className={`text-xs font-bold uppercase tracking-[0.16em] ${missingFounderContact.length ? "text-[#795c19]" : "text-[#084b9a]"}`}>Workspace contact</p>
-                  {missingFounderContact.length ? (
-                    <>
-                      <p className="mt-3 text-sm leading-6 text-[#6c5a2d]">Add only the contact details the intake evidence did not provide:</p>
-                      <ul className="mt-3 grid gap-2 text-sm font-semibold text-[#6c5a2d]">
-                        {missingFounderContact.map((field) => <li key={field.key}>• {field.label}</li>)}
-                      </ul>
-                    </>
-                  ) : (
-                    <p className="mt-3 text-sm font-semibold leading-6 text-[#084b9a]">Founder contact is ready for source-backed application prefill.</p>
-                  )}
+                <p className="mt-4 text-xs leading-5 text-[#68778b]">Name and email are needed to save contact details. Role is optional.</p>
+              </div>
+              <div className="grid gap-4 border-t border-[#0a1930]/10 bg-[rgba(247,241,229,0.62)] p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                <button type="button" onClick={() => setReviewMode("optional")} className="approval-back-button">Back</button>
+                <div className="flex justify-center">
+                  <ProgressRail current={reviewQuestionKeys.length + 1} total={reviewQuestionKeys.length + 2} />
                 </div>
-                <div className="rounded-[1.75rem] border border-[#d9b45f]/35 bg-[#fff7e5] p-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#795c19]">Critical unknowns</p>
-                  <ul className="mt-4 grid gap-2 text-sm leading-6 text-[#6c5a2d]">
-                    {(!profile.ownership || profile.ownership.toLowerCase().includes("unknown")) && <li>Ownership and control</li>}
-                    {(!profile.samStatus || profile.samStatus.toLowerCase().includes("unknown")) && <li>SAM.gov registration</li>}
-                    {!profile.uei && <li>Unique Entity ID</li>}
-                    <li>Exact notice-specific eligibility</li>
-                  </ul>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setReviewMode("confirm")}
+                    className="min-h-11 rounded-xl border border-[#0a1930]/12 bg-white px-5 py-3 text-sm font-semibold text-[#536176]"
+                  >
+                    Skip for now
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canSaveProfile}
+                    onClick={() => setReviewMode("confirm")}
+                    className="approval-continue-button disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Save and review profile
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void buildMap()}
-                  className="min-h-14 w-full rounded-2xl bg-[#06275c] px-5 py-4 text-sm font-bold text-white shadow-[0_16px_35px_rgba(23,61,44,0.18)] transition hover:bg-[#084b9a] disabled:cursor-wait disabled:opacity-65"
-                >
-                  Find my resources
-                </button>
-              </aside>
+              </div>
             </div>
           </section>
         )}
@@ -1685,10 +2029,12 @@ export default function OpportunityWorkbench() {
           />
         )}
 
-        <footer className="mt-28 border-t border-[#0a1930]/10 pt-5 text-xs text-[#68736c] sm:mt-36">
-          <p>Research aid only. Verify eligibility and instructions on the official source.</p>
-        </footer>
       </div>
+      <footer className="mt-auto text-xs text-[#68736c]">
+        <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-8 lg:px-12">
+          <p>Research aid only. Verify eligibility and instructions on the official source.</p>
+        </div>
+      </footer>
     </main>
   );
 }

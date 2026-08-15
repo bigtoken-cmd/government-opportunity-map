@@ -14,7 +14,6 @@ function input(
     sourceType: "manual",
     evidenceText: EVIDENCE,
     sourceUrl: "",
-    externalProcessingConsent: true,
     ...overrides,
   };
 }
@@ -69,25 +68,6 @@ async function sanitizeThroughProvider(evidenceText: string) {
   };
 }
 
-test("missing external-processing consent skips Luna without calling the provider", async () => {
-  let calls = 0;
-  const result = await extractFounderEvidence(
-    input({ externalProcessingConsent: false }),
-    {
-      apiKey: "test-only-key",
-      fetcher: async () => {
-        calls += 1;
-        return modelResponse([]);
-      },
-    },
-  );
-
-  assert.equal(calls, 0);
-  assert.equal(result.externalProcessing.reason, "consent_required");
-  assert.equal(result.externalProcessing.attempted, false);
-  assert.ok(Object.values(result.proposedProfile).every((value) => value === ""));
-});
-
 test("secret-like values and government identifiers are redacted before Luna", async () => {
   const syntheticToken = ["sk", "test", "1234567890abcdef"].join("-");
   const syntheticIdentifier = ["123", "45", "6789"].join("-");
@@ -112,7 +92,7 @@ test("secret-like values and government identifiers are redacted before Luna", a
   assert.equal(result.externalProcessing.completed, true);
 });
 
-test("common direct identifiers are removed from consented external evidence", async () => {
+test("common direct identifiers are removed from external evidence", async () => {
   const identifiers = [
     "founder@example.com",
     "(801) 555-0199",
@@ -742,7 +722,7 @@ test("successful extraction uses the approved Responses API contract", async () 
   assert.equal(result.externalProcessing.completed, true);
 });
 
-test("all supported evidence source types use Luna when consent and a key are present", async () => {
+test("all supported evidence source types use Luna when a key is present", async () => {
   for (const sourceType of ["website", "manual", "pdf", "docx", "pptx"] as const) {
     let calls = 0;
     const result = await extractFounderEvidence(input({ sourceType }), {

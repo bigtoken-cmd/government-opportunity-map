@@ -206,13 +206,6 @@ export function createEvidenceBundlePost(
       );
     }
     const form = parsedForm.form;
-    if (formText(form, "externalProcessingConsent") !== "true") {
-      return NextResponse.json({
-        error: "Explicit consent is required before evidence is sent to OpenAI.",
-        externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
-      }, { status: 400 });
-    }
-
     const files = form.getAll("files").filter(isUpload);
     if (files.length > MAX_UPLOAD_COUNT) {
       return NextResponse.json(
@@ -315,7 +308,6 @@ export function createEvidenceBundlePost(
       sourceType: "manual",
       evidenceText: combinedEvidence(bounded),
       sourceUrl: "urn:founder-evidence:bundle",
-      externalProcessingConsent: true,
     }, dependencies.luna);
     const evidence = extraction.evidence.flatMap((claim) => {
       const sources = claimSources(claim, bounded);

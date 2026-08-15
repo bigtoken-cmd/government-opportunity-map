@@ -64,7 +64,6 @@ interface ParsedSemanticReview {
 }
 
 export type SemanticReviewFailureReason =
-  | "consent_required"
   | "missing_api_key"
   | "rate_limited"
   | "rate_limit_unavailable"
@@ -99,7 +98,6 @@ export interface LunaSemanticReviewDependencies {
 }
 
 export interface OpportunitySemanticReviewInput {
-  externalProcessingConsent: boolean;
   company: CompanyProfile;
   discovery: OpportunityDiscovery;
 }
@@ -499,9 +497,6 @@ export async function reviewOpportunitySemantics(
   input: OpportunitySemanticReviewInput,
   dependencies: LunaSemanticReviewDependencies = {},
 ): Promise<OpportunitySemanticReviewResult> {
-  if (!input.externalProcessingConsent) {
-    return { discovery: input.discovery, processing: processingFailure("consent_required") };
-  }
   const limit = Math.max(1, Math.min(dependencies.maxRecommendations ?? DEFAULT_REVIEW_LIMIT, 20));
   const reviewedRecommendations = input.discovery.recommendations.slice(0, limit);
   if (!reviewedRecommendations.length) {

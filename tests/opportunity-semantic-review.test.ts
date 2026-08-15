@@ -36,7 +36,6 @@ function input(): OpportunitySemanticReviewInput {
   recommendation.opportunity.scopeSummary =
     "The pilot funds resilient infrastructure monitoring for public agencies.";
   return {
-    externalProcessingConsent: true,
     company: normalizeFounderProfile({
       id: "fixture-company",
       companyName: "Fixture Company",
@@ -69,23 +68,6 @@ function review(alignment: "strong" | "partial" | "weak") {
     mismatchCodes: alignment === "strong" ? [] : ["generic_domain_overlap_only"],
   };
 }
-
-test("semantic review requires consent and makes no provider call without it", async () => {
-  let calls = 0;
-  const value = input();
-  value.externalProcessingConsent = false;
-  const result = await reviewOpportunitySemantics(value, {
-    apiKey: "test-only-key",
-    fetcher: async () => {
-      calls += 1;
-      return completedResponse([review("strong")]);
-    },
-  });
-
-  assert.equal(calls, 0);
-  assert.equal(result.processing.reason, "consent_required");
-  assert.deepEqual(result.discovery, value.discovery);
-});
 
 test("one valid batched review preserves strong matches and uses selected exact evidence", async () => {
   let calls = 0;
@@ -225,7 +207,7 @@ test("invalid evidence IDs reject the whole model result and preserve determinis
   assert.deepEqual(result.discovery, value.discovery);
 });
 
-test("search orchestration exposes consented review failure without changing deterministic results", async () => {
+test("search orchestration exposes review failure without changing deterministic results", async () => {
   const company = normalizeFounderProfile({
     id: "semantic-water",
     companyName: "Semantic Water",
@@ -248,7 +230,6 @@ test("search orchestration exposes consented review failure without changing det
   const reviewed = await searchGovernmentSources(company, {
     mode: "cached",
     semanticReview: {
-      externalProcessingConsent: true,
       apiKey: "",
     },
   });

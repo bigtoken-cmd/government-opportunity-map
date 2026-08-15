@@ -29,30 +29,6 @@ function evidenceRequest(body: unknown) {
   });
 }
 
-test("manual evidence requires explicit external-processing consent", async () => {
-  let providerCalls = 0;
-  const post = createEvidencePost({
-    apiKey: "test-only-key",
-    fetcher: async () => {
-      providerCalls += 1;
-      return lunaResponse([]);
-    },
-  });
-
-  const response = await post(evidenceRequest({
-    sourceType: "manual",
-    evidenceText: "Acme builds municipal water sensors for public utilities.",
-    externalProcessingConsent: false,
-  }));
-
-  assert.equal(response.status, 400);
-  assert.equal(providerCalls, 0);
-  assert.deepEqual(await response.json(), {
-    error: "Explicit consent is required before evidence is sent to OpenAI.",
-    externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
-  });
-});
-
 test("manual evidence returns only supported profile suggestions and evidence", async () => {
   let providerCalls = 0;
   const evidenceText =
@@ -84,7 +60,6 @@ test("manual evidence returns only supported profile suggestions and evidence", 
   const response = await post(evidenceRequest({
     sourceType: "manual",
     evidenceText,
-    externalProcessingConsent: true,
   }));
   const body = await response.json();
 
@@ -94,7 +69,7 @@ test("manual evidence returns only supported profile suggestions and evidence", 
   assert.equal(body.profile.description, evidenceText);
   assert.equal(body.profile.technology, "municipal water sensors");
   assert.equal(body.profile.yearFounded, "2021");
-  assert.equal(body.profile.applicantType, "Unknown — founder input needed");
+  assert.equal(body.profile.applicantType, "");
   assert.equal(body.externalProcessing.completed, true);
   assert.equal(body.externalProcessingDisclosure, EXTERNAL_PROCESSING_DISCLOSURE);
   assert.deepEqual(
@@ -128,7 +103,6 @@ test("PDF evidence falls back deterministically when OpenAI is unavailable", asy
     sourceType: "pdf",
     evidenceText,
     sourceUrl: "https://files.example.test/acme-one-pager.pdf",
-    externalProcessingConsent: true,
   }));
   const body = await response.json();
 
@@ -155,7 +129,6 @@ test("evidence intake rejects unsupported source types before provider access", 
   const response = await post(evidenceRequest({
     sourceType: "website",
     evidenceText: "Acme builds municipal water sensors for public utilities.",
-    externalProcessingConsent: true,
   }));
 
   assert.equal(response.status, 400);
@@ -178,7 +151,6 @@ test("evidence intake enforces evidence-text and request-body byte limits", asyn
   const oversizedEvidence = await post(evidenceRequest({
     sourceType: "manual",
     evidenceText: "x".repeat(24_001),
-    externalProcessingConsent: true,
   }));
   assert.equal(oversizedEvidence.status, 413);
   assert.deepEqual(await oversizedEvidence.json(), {
@@ -189,7 +161,6 @@ test("evidence intake enforces evidence-text and request-body byte limits", asyn
     sourceType: "manual",
     evidenceText: "Acme builds municipal water sensors for public utilities.",
     ignored: "x".repeat(70_000),
-    externalProcessingConsent: true,
   }));
   assert.equal(oversizedBody.status, 413);
   assert.deepEqual(await oversizedBody.json(), {

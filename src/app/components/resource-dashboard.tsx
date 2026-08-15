@@ -15,6 +15,65 @@ import {
 type DashboardTab = "opportunities" | "next-steps" | "profile";
 type SortMode = "relevance" | "amount" | "deadline";
 
+type ProfileSummaryField = {
+  key: keyof CompanyProfile;
+  label: string;
+  wide?: boolean;
+};
+
+const profileSummaryGroups: ReadonlyArray<{
+  title: string;
+  description: string;
+  fields: ReadonlyArray<ProfileSummaryField>;
+}> = [
+  {
+    title: "Company details",
+    description: "The core facts used to understand the business and its work.",
+    fields: [
+      { key: "companyName", label: "Company name" },
+      { key: "website", label: "Website" },
+      { key: "description", label: "Company description", wide: true },
+      { key: "industry", label: "Industry" },
+      { key: "technology", label: "Core technology or method" },
+      { key: "location", label: "Company location" },
+      { key: "employees", label: "Team size" },
+      { key: "customers", label: "Target customers", wide: true },
+      { key: "researchActivities", label: "Research and development", wide: true },
+    ],
+  },
+  {
+    title: "Financing",
+    description: "The project and financial context used to narrow possible funding routes.",
+    fields: [
+      { key: "capitalNeed", label: "Funding need" },
+      { key: "useOfFunds", label: "Use of funds", wide: true },
+      { key: "revenue", label: "Annual revenue" },
+      { key: "capitalRaised", label: "Capital raised" },
+    ],
+  },
+  {
+    title: "Eligibility and federal registration",
+    description: "Organization and registration details used to check applicant requirements.",
+    fields: [
+      { key: "applicantType", label: "Organization type" },
+      { key: "ownership", label: "Ownership and control", wide: true },
+      { key: "samStatus", label: "SAM.gov status" },
+      { key: "uei", label: "Unique Entity ID (from SAM.gov)" },
+    ],
+  },
+];
+
+const profileContactFields: ReadonlyArray<ProfileSummaryField> = [
+  { key: "founderName", label: "Primary contact" },
+  { key: "founderRole", label: "Contact role" },
+  { key: "founderEmail", label: "Contact email", wide: true },
+];
+
+function hasProfileSummaryValue(value: CompanyProfile[keyof CompanyProfile]) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return Boolean(normalized) && !["unknown", "not provided", "n/a"].includes(normalized);
+}
+
 const decisionLabels: Record<RankedOpportunityCard["decision"], string> = {
   "Pursue now": "Pursue",
   "Verify first": "Verify one thing",
@@ -55,6 +114,17 @@ function deadlineValue(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function formatPotentialFunding(value: number) {
+  if (!value) return "Not stated";
+  const compact = (amount: number) => new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 1,
+  }).format(amount);
+  if (value >= 1_000_000_000) return `$${compact(value / 1_000_000_000)}B+`;
+  if (value >= 1_000_000) return `$${compact(value / 1_000_000)}M+`;
+  if (value >= 1_000) return `$${compact(value / 1_000)}K+`;
+  return `$${compact(value)}+`;
+}
+
 function FootstepsIcon() {
   return (
     <span aria-hidden="true" className="footsteps-icon">
@@ -68,10 +138,16 @@ function Chevron({ expanded }: { expanded: boolean }) {
   return <span aria-hidden="true" className={`chevron ${expanded ? "chevron-open" : ""}`}>⌄</span>;
 }
 
-function SourceButton({ onClick }: { onClick: () => void }) {
+function SourceButton({
+  onClick,
+  prominent = false,
+}: {
+  onClick: () => void;
+  prominent?: boolean;
+}) {
   return (
-    <button type="button" onClick={onClick} className="quiet-link">
-      Open official source
+    <button type="button" onClick={onClick} className={prominent ? "official-source-button" : "quiet-link"}>
+      {prominent ? "Official opportunity" : "Open official source"}
     </button>
   );
 }
@@ -133,6 +209,23 @@ export default function ResourceDashboard({
   }, [matches, sortMode]);
 
   const visibleMatches = sortedMatches.slice(0, Math.min(visibleCount, 20));
+  const dashboardMetrics = useMemo(() => {
+    const totalPotentialFunding = matches.reduce(
+      (total, match) => total + (amountValue(match.amount) ?? 0),
+      0,
+    );
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const closingWindowEnd = today.getTime() + (90 * 24 * 60 * 60 * 1000);
+    const closingWithinNinetyDays = matches.filter((match) => {
+      const deadline = deadlineValue(match.deadline);
+      return deadline !== null && deadline >= today.getTime() && deadline <= closingWindowEnd;
+    }).length;
+    return {
+      totalPotentialFunding: formatPotentialFunding(totalPotentialFunding),
+      closingWithinNinetyDays,
+    };
+  }, [matches]);
   const savedMatches = savedOpportunityIds
     .map((id) => matches.find((match) => match.id === id))
     .filter((match): match is RankedOpportunityCard => Boolean(match))
@@ -172,12 +265,23 @@ export default function ResourceDashboard({
               ? `${matches.length} defensible route${matches.length === 1 ? "" : "s"}, ranked for your confirmed profile.`
               : "The current records did not clear the relevance and eligibility gates for this profile."}
           </p>
+          {!searchError && matches.length > 0 && (
+            <dl className="dashboard-metrics" aria-label="Opportunity summary">
+              <div>
+                <dt>High-potential opportunities</dt>
+                <dd>{matches.length}</dd>
+              </div>
+              <div>
+                <dt>Potential funding identified</dt>
+                <dd>{dashboardMetrics.totalPotentialFunding}</dd>
+              </div>
+              <div>
+                <dt>Closing within 90 days</dt>
+                <dd>{dashboardMetrics.closingWithinNinetyDays}</dd>
+              </div>
+            </dl>
+          )}
         </div>
-        {!searchError && tab !== "profile" && (
-          <button type="button" onClick={onEditProfile} className="secondary-button">
-            Edit profile
-          </button>
-        )}
       </div>
 
       {searchError ? (
@@ -194,7 +298,7 @@ export default function ResourceDashboard({
         </div>
       ) : (
         <>
-      <nav className="dashboard-tabs" aria-label="Resource finder">
+      <nav className={`dashboard-tabs ${tab === "opportunities" && matches.length ? "dashboard-tabs-connected" : ""}`} aria-label="Resource finder">
         <button type="button" aria-current={tab === "opportunities" ? "page" : undefined} onClick={() => setTab("opportunities")}>
           Opportunities
         </button>
@@ -207,7 +311,7 @@ export default function ResourceDashboard({
       </nav>
 
       {tab === "opportunities" && (
-        <div className="dashboard-panel">
+        <div className={`dashboard-panel ${matches.length ? "dashboard-panel-opportunities" : ""}`}>
           {matches.length ? (
             <>
               <div className="results-toolbar">
@@ -303,6 +407,7 @@ export default function ResourceDashboard({
                           <span><strong>{opportunity.score}/100</strong> evidence · {opportunity.fitTier}</span>
                         </span>
                         <span className="recommendation-actions">
+                          <SourceButton prominent onClick={() => onOpenSource(opportunity)} />
                           <button type="button" onClick={() => toggleSaved(opportunity.id)} className={saved ? "saved-button" : "save-button"}>
                             {saved ? "Saved" : "Save to my list"}
                           </button>
@@ -324,10 +429,10 @@ export default function ResourceDashboard({
               <p className="source-note">{sourceMessage}</p>
             </>
           ) : (
-            <div className="no-match-state">
-              <h2>Do not force a grant-shaped answer.</h2>
-              <p>Try adding the exact government problem, R&amp;D project, applicant type, or partner you can work with. Weak matches are intentionally left out.</p>
-              <button type="button" onClick={onEditProfile} className="primary-button">Improve my profile</button>
+            <div className="no-match-state no-match-card">
+              <h2>No available opportunities match your profile.</h2>
+              <p>Federal grants are not the right funding route for every business. You can change your profile to check again.</p>
+              <button type="button" onClick={onEditProfile} className="primary-button">Edit profile</button>
             </div>
           )}
         </div>
@@ -374,25 +479,53 @@ export default function ResourceDashboard({
       )}
 
       {tab === "profile" && (
-        <div className="dashboard-panel profile-panel">
-          <div className="profile-panel-heading">
-            <div><h2>Confirmed profile</h2><p>Edit any value before running a new search.</p></div>
+        <div className="dashboard-panel profile-summary">
+          <div className="profile-summary-heading">
+            <div><h2>Confirmed profile</h2><p>Review the information used for this search or edit your profile and search again.</p></div>
             <button type="button" onClick={onEditProfile} className="primary-button">Edit profile</button>
           </div>
-          <dl>
-            {([
-              ["Company", profile.companyName],
-              ["Website", profile.website],
-              ["What you do", profile.description],
-              ["Industry", profile.industry],
-              ["Technology", profile.technology],
-              ["Location", profile.location],
-              ["Applicant type", profile.applicantType],
-              ["Ownership", profile.ownership],
-            ] as const).map(([label, value]) => (
-              <div key={label}><dt>{label}</dt><dd>{value || "Still unknown"}</dd></div>
-            ))}
-          </dl>
+
+          <section className="profile-summary-card">
+            {profileSummaryGroups.map((group) => {
+              const populatedFields = group.fields.filter(({ key }) => hasProfileSummaryValue(profile[key]));
+              if (!populatedFields.length) return null;
+              return (
+                <section key={group.title} className="profile-summary-section">
+                  <div className="profile-summary-section-heading">
+                    <h2>{group.title}</h2>
+                    <p>{group.description}</p>
+                  </div>
+                  <dl className="profile-summary-grid">
+                    {populatedFields.map((field) => (
+                      <div key={field.key} className={`profile-summary-field ${field.wide ? "profile-summary-field-wide" : ""}`}>
+                        <dt>{field.label}</dt>
+                        <dd>{String(profile[field.key])}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              );
+            })}
+          </section>
+
+          {profileContactFields.some(({ key }) => hasProfileSummaryValue(profile[key])) && (
+            <section className="profile-summary-card profile-contact-card">
+              <div className="profile-summary-section-heading">
+                <h2>Your profile</h2>
+                <p>Contact details saved with this profile.</p>
+              </div>
+              <dl className="profile-summary-grid">
+                {profileContactFields
+                  .filter(({ key }) => hasProfileSummaryValue(profile[key]))
+                  .map((field) => (
+                    <div key={field.key} className={`profile-summary-field ${field.wide ? "profile-summary-field-wide" : ""}`}>
+                      <dt>{field.label}</dt>
+                      <dd>{String(profile[field.key])}</dd>
+                    </div>
+                  ))}
+              </dl>
+            </section>
+          )}
         </div>
       )}
         </>

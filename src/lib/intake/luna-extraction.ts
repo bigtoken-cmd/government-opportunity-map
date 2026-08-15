@@ -51,7 +51,6 @@ const EXTRACTION_POLICY = `# Founder Evidence Extraction Policy
 export type FounderEvidenceSourceType = "website" | "manual" | "pdf" | "docx" | "pptx";
 export type FounderProfileProposalField = (typeof FOUNDER_PROFILE_FIELDS)[number];
 export type ExternalProcessingReason =
-  | "consent_required"
   | "invalid_evidence"
   | "missing_api_key"
   | "provider_error"
@@ -63,7 +62,6 @@ export interface FounderEvidenceExtractionInput {
   sourceType: FounderEvidenceSourceType;
   evidenceText: string;
   sourceUrl: string;
-  externalProcessingConsent: boolean;
 }
 
 export interface LunaExtractionDependencies {
@@ -803,10 +801,6 @@ export async function extractFounderEvidence(
   input: FounderEvidenceExtractionInput,
   dependencies: LunaExtractionDependencies = {},
 ): Promise<FounderEvidenceExtractionResult> {
-  if (input.externalProcessingConsent !== true) {
-    return fallback("consent_required", 0);
-  }
-
   const redacted = redactSensitiveEvidence(input.evidenceText);
   if (redacted.unsafe) {
     return fallback("sensitive_evidence", redacted.count);

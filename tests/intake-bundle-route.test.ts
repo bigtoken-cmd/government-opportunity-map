@@ -94,7 +94,6 @@ test("one bounded bundle combines website, manual, PDF, DOCX, and PPTX provenanc
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   );
   const form = new FormData();
-  form.set("externalProcessingConsent", "true");
   form.set("website", "https://acme.example.com");
   form.set("manualText", "We have 12 employees in Utah.");
   form.append("files", docx);
@@ -155,7 +154,6 @@ test("bundle intake enforces the five-upload boundary before provider access", a
     },
   });
   const form = new FormData();
-  form.set("externalProcessingConsent", "true");
   for (let index = 0; index < 6; index += 1) {
     form.append("files", new File(["%PDF"], `file-${index}.pdf`, { type: "application/pdf" }));
   }
@@ -178,7 +176,6 @@ test("duplicate excerpts preserve every matching source instead of guessing prov
     },
   });
   const form = new FormData();
-  form.set("externalProcessingConsent", "true");
   form.set("manualText", "We build a shared sensor platform.");
   form.append("files", new File(["%PDF-test"], "duplicate.pdf", { type: "application/pdf" }));
   form.append("fileText", "We build a shared sensor platform.");
@@ -211,7 +208,6 @@ test("bundle intake rejects an oversized multipart body before parsing it", asyn
 test("an unreadable supported document returns an honest paste-text fallback", async () => {
   const post = createEvidenceBundlePost();
   const form = new FormData();
-  form.set("externalProcessingConsent", "true");
   form.append("files", new File(["not a zip"], "broken.docx"));
 
   const response = await post(request(form));

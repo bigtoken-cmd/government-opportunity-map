@@ -119,15 +119,6 @@ export function createEvidencePost(
         { status: 400 },
       );
     }
-    if (body.externalProcessingConsent !== true) {
-      return NextResponse.json(
-        {
-          error: "Explicit consent is required before evidence is sent to OpenAI.",
-          externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
-        },
-        { status: 400 },
-      );
-    }
     if (typeof body.evidenceText !== "string" || !body.evidenceText.trim()) {
       return NextResponse.json(
         { error: "Evidence text is required." },
@@ -164,7 +155,6 @@ export function createEvidencePost(
       sourceType: body.sourceType,
       evidenceText,
       sourceUrl: evidenceSourceUrl,
-      externalProcessingConsent: true,
     }, lunaDependencies);
     const baseProfile = createEvidenceOnlyFounderProfile(evidenceText);
     const proposed = extraction.proposedProfile;

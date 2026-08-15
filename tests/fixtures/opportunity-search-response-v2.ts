@@ -136,5 +136,5 @@ export const opportunitySearchResponseV2Fixture = {
     model: "gpt-5.6-luna",
   },
   externalProcessingDisclosure:
-    "Test-only disclosure for consented semantic opportunity review.",
+    "Test-only disclosure for semantic opportunity review.",
 } satisfies GovernmentSourceSearchResult;

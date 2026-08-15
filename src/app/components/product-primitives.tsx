@@ -13,7 +13,7 @@ export function ProgressRail({
     <span
       className="question-progress-rail"
       role="progressbar"
-      aria-label={`Question ${current + 1} of ${total}`}
+      aria-label={`Profile step ${current + 1} of ${total}`}
       aria-valuemin={1}
       aria-valuemax={total}
       aria-valuenow={current + 1}

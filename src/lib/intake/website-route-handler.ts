@@ -213,7 +213,6 @@ export function createWebsitePost(
     try {
       const body = (await request.json()) as {
         url?: unknown;
-        externalProcessingConsent?: unknown;
       };
       if (typeof body.url !== "string" || !body.url.trim()) {
         return NextResponse.json({ error: "Enter a company website." }, { status: 400 });
@@ -226,15 +225,10 @@ export function createWebsitePost(
         ...baseResult
       } = snapshot;
 
-      if (body.externalProcessingConsent !== true) {
-        return NextResponse.json(baseResult);
-      }
-
       const extraction = await extractFounderEvidence({
         sourceType: "website",
         evidenceText,
         sourceUrl,
-        externalProcessingConsent: true,
       }, lunaDependencies);
       const proposed = extraction.proposedProfile;
 

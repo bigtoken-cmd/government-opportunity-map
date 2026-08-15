@@ -90,8 +90,9 @@ test("cached search returns role-separated records and source warnings", async (
   assert.equal(response.status, 200);
   assert.deepEqual(
     sortedKeys(body),
-    ["discovery", "query", "sources", "warnings"],
+    ["discovery", "externalProcessingDisclosure", "query", "semanticReview", "sources", "warnings"],
   );
+  assert.equal(body.semanticReview.reason, "missing_api_key");
   assert.deepEqual(
     sortedKeys(body.query),
     ["assistanceListing", "keyword"],
@@ -221,7 +222,7 @@ test("website intake returns evidence-only fields from injected fetch", async ()
   assert.match(body.warning, /Confirm every field/);
 });
 
-test("website intake invokes Luna only with explicit consent and returns disclosure", async () => {
+test("website intake invokes Luna and returns the processing disclosure", async () => {
   let providerCalls = 0;
   const post = createWebsitePost(
     async () => new Response(
@@ -248,7 +249,6 @@ test("website intake invokes Luna only with explicit consent and returns disclos
     method: "POST",
     body: JSON.stringify({
       url: "https://water.example.com",
-      externalProcessingConsent: true,
     }),
     headers: { "Content-Type": "application/json" },
   }));

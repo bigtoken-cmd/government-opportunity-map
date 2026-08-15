@@ -12,13 +12,13 @@ import {
 import type { AssistanceListingsStore } from "../src/lib/sources/assistance-listings-store";
 import type { SbirAwardsStore } from "../src/lib/sources/sbir-store";
 
-test("manual evidence-only intake preserves unsupported company facts as unknown", () => {
+test("manual evidence-only intake leaves unsupported company facts blank", () => {
   const profile = createEvidenceOnlyFounderProfile("We build AI software for hospitals.");
   assert.equal(profile.description, "We build AI software for hospitals.");
   assert.equal(profile.revenue, "");
   assert.equal(profile.capitalRaised, "");
-  assert.equal(profile.applicantType, "Unknown — founder input needed");
-  assert.equal(profile.samStatus, "Unknown");
+  assert.equal(profile.applicantType, "");
+  assert.equal(profile.samStatus, "");
 });
 
 test("generic AI language does not create a source query by itself", async () => {
