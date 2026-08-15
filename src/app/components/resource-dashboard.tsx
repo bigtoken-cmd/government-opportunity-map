@@ -140,15 +140,34 @@ function Chevron({ expanded }: { expanded: boolean }) {
 
 function SourceButton({
   onClick,
-  prominent = false,
 }: {
   onClick: () => void;
-  prominent?: boolean;
 }) {
   return (
-    <button type="button" onClick={onClick} className={prominent ? "official-source-button" : "quiet-link"}>
-      {prominent ? "Official opportunity" : "Open official source"}
+    <button type="button" onClick={onClick} className="quiet-link">
+      Open official source
     </button>
+  );
+}
+
+function OfficialSourceLink({
+  url,
+  onClick,
+}: {
+  url: string;
+  onClick: () => void;
+}) {
+  return (
+    <a
+      href={url}
+      onClick={(event) => {
+        event.preventDefault();
+        onClick();
+      }}
+      className="official-source-link"
+    >
+      {url}
+    </a>
   );
 }
 
@@ -230,6 +249,7 @@ export default function ResourceDashboard({
     .map((id) => matches.find((match) => match.id === id))
     .filter((match): match is RankedOpportunityCard => Boolean(match))
     .sort((left, right) => right.score - left.score);
+  const tabsConnectToPanel = tab !== "opportunities" || matches.length > 0;
 
   function toggleSaved(id: string) {
     onSavedChange(
@@ -298,7 +318,7 @@ export default function ResourceDashboard({
         </div>
       ) : (
         <>
-      <nav className={`dashboard-tabs ${tab === "opportunities" && matches.length ? "dashboard-tabs-connected" : ""}`} aria-label="Resource finder">
+      <nav className={`dashboard-tabs ${tabsConnectToPanel ? "dashboard-tabs-connected" : ""}`} aria-label="Resource finder">
         <button type="button" aria-current={tab === "opportunities" ? "page" : undefined} onClick={() => setTab("opportunities")}>
           Opportunities
         </button>
@@ -407,7 +427,7 @@ export default function ResourceDashboard({
                           <span><strong>{opportunity.score}/100</strong> evidence · {opportunity.fitTier}</span>
                         </span>
                         <span className="recommendation-actions">
-                          <SourceButton prominent onClick={() => onOpenSource(opportunity)} />
+                          <OfficialSourceLink url={opportunity.sourceUrl} onClick={() => onOpenSource(opportunity)} />
                           <button type="button" onClick={() => toggleSaved(opportunity.id)} className={saved ? "saved-button" : "save-button"}>
                             {saved ? "Saved" : "Save to my list"}
                           </button>
@@ -439,7 +459,7 @@ export default function ResourceDashboard({
       )}
 
       {tab === "next-steps" && (
-        <div className="dashboard-panel">
+        <div className="dashboard-panel dashboard-panel-connected">
           {savedMatches.length === 0 ? (
             <div className="next-steps-empty">
               <FootstepsIcon />
@@ -479,7 +499,7 @@ export default function ResourceDashboard({
       )}
 
       {tab === "profile" && (
-        <div className="dashboard-panel profile-summary">
+        <div className="dashboard-panel dashboard-panel-connected profile-summary">
           <div className="profile-summary-heading">
             <div><h2>Confirmed profile</h2><p>Review the information used for this search or edit your profile and search again.</p></div>
             <button type="button" onClick={onEditProfile} className="primary-button">Edit profile</button>
