@@ -29,14 +29,14 @@ import {
   setChecklistItem,
   type WorkspaceState,
 } from "@/lib/workspace-state";
+import ResourceDashboard from "./resource-dashboard";
 
 type Stage = "intake" | "review" | "results" | "workspace";
-type IntakeMethod = "website" | "document" | "manual";
 type FitTier = "Likely Fit" | "Potential Fit" | "Adjacent";
 type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch" | "Skip";
 type SaveMode = "saving" | "device-only" | "durable";
 
-type CompanyProfile = {
+export type CompanyProfile = {
   companyName: string;
   founderName: string;
   founderRole: string;
@@ -79,7 +79,7 @@ type OpportunityCard = {
   applicationFields: Array<{ label: string; profileKey?: keyof CompanyProfile; note?: string }>;
 };
 
-type RankedOpportunityCard = OpportunityCard & {
+export type RankedOpportunityCard = OpportunityCard & {
   score: number;
   eligibilityChecks: string[];
 };
@@ -116,6 +116,28 @@ type ExternalSourcePrompt = {
   title: string;
   context: string;
 };
+
+type UploadedFile = {
+  name: string;
+  size: number;
+  kind: "pdf" | "docx" | "pptx";
+  extraction: "read" | "paste-needed";
+};
+
+const REQUIRED_REVIEW_QUESTIONS: Array<{
+  key: keyof CompanyProfile;
+  label: string;
+  why: string;
+  placeholder: string;
+  multiline?: boolean;
+}> = [
+  { key: "companyName", label: "What is the company called?", why: "We use this to keep your profile and saved work clear.", placeholder: "Company name" },
+  { key: "description", label: "What does the company build?", why: "A specific product and problem produce stronger matches than broad industry terms.", placeholder: "Describe the product and the problem it solves", multiline: true },
+  { key: "location", label: "Where is the company based?", why: "Some routes have state, domestic, or place-of-performance rules.", placeholder: "City, state, country" },
+  { key: "applicantType", label: "What kind of applicant are you?", why: "Applicant type is one of the most common hard eligibility boundaries.", placeholder: "For-profit small business, nonprofit, university…" },
+  { key: "ownership", label: "How is the company owned and controlled?", why: "Some small-business and research programs have ownership requirements.", placeholder: "Founder-owned, venture-backed, subsidiary…" },
+  { key: "useOfFunds", label: "What would the funding support?", why: "This separates a real public-purpose project from general business funding.", placeholder: "Research, pilot, equipment, hiring…", multiline: true },
+];
 
 const EXTERNAL_SOURCE_CHECKS = [
   {
@@ -315,15 +337,6 @@ const SAVE_MODE_CONTENT: Record<
     dotClassName: "bg-[#4c9b67]",
   },
 };
-const PROGRAM_SNAPSHOT_LABELS: Record<
-  ProgramContextRecord["source"]["snapshotStatus"],
-  string
-> = {
-  live: "Live official program record",
-  cached_official_snapshot: "Official cached program record",
-  cached_demo_snapshot: "Audited fallback program record",
-};
-
 interface StoredWorkbenchSnapshot {
   stage?: Stage;
   profile?: CompanyProfile;
@@ -335,6 +348,7 @@ interface StoredWorkbenchSnapshot {
   historicalAwards?: HistoricalAwardRecord[];
   sourceSummaries?: SourceSearchSummary[];
   durableWorkspace?: WorkspaceClientCredentials;
+  savedOpportunityIds?: string[];
 }
 
 function profileFromText(text: string): CompanyProfile {
@@ -367,33 +381,14 @@ function clearStoredDurableCredentials() {
 }
 
 function StepRail({ stage }: { stage: Stage }) {
-  const activeIndex = stage === "intake" ? 0 : stage === "review" ? 0 : stage === "results" ? 1 : 2;
-  const steps = ["Verified profile", "Opportunity map", "Application workspace"];
+  if (stage === "results" || stage === "workspace") return null;
+  const label = stage === "intake" ? "Add your information" : "Confirm your profile";
   return (
-    <ol className="grid gap-2 sm:grid-cols-3" aria-label="Progress">
-      {steps.map((step, index) => (
-        <li
-          key={step}
-          aria-current={index === activeIndex ? "step" : undefined}
-          className={`flex min-h-14 items-center gap-3 rounded-2xl border px-3 py-3 text-sm sm:px-4 ${
-            index === activeIndex
-              ? "border-[#235f40] bg-[#e7f2e9] text-[#173d2c]"
-              : index < activeIndex
-                ? "border-[#bad3c2] bg-white text-[#315d43]"
-                : "border-[#17211b]/10 bg-white/55 text-[#717b74]"
-          }`}
-        >
-          <span
-            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold ${
-              index <= activeIndex ? "bg-[#173d2c] text-white" : "bg-[#e8e8e2] text-[#6d756f]"
-            }`}
-          >
-            {index < activeIndex ? "✓" : index + 1}
-          </span>
-          <span className="font-semibold">{step}</span>
-        </li>
-      ))}
-    </ol>
+    <div className="flex items-center gap-3 text-sm font-semibold text-[#68778b]" aria-label="Profile progress">
+      <span>Step 1 of 3</span>
+      <span aria-hidden="true" className="h-px w-8 bg-[#d7e0ed]" />
+      <span className="text-[#06275c]">{label}</span>
+    </div>
   );
 }
 
@@ -406,25 +401,25 @@ function AppHeader({
 }) {
   const saveContent = SAVE_MODE_CONTENT[saveMode];
   return (
-    <header className="sticky top-0 z-30 border-b border-[#17211b]/10 bg-[#f4f2eb]/92 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b border-[#0a1930]/10 bg-[#f5f8fc]/92 backdrop-blur-xl">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-8 lg:px-12">
         <div className="flex min-w-0 items-center gap-3">
-          <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#173d2c] text-xs font-black tracking-[-0.04em] text-white shadow-[0_8px_24px_rgba(23,61,44,0.18)]">OM</span>
+          <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#06275c] text-xs font-black tracking-[-0.04em] text-white shadow-[0_8px_24px_rgba(23,61,44,0.18)]">GR</span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold tracking-[-0.02em]">Opportunity Map</p>
-            <p className="hidden text-[11px] text-[#667169] sm:block">Founder-first government intelligence</p>
+            <p className="truncate text-sm font-bold tracking-[-0.02em]">Government Resource Finder</p>
+            <p className="hidden text-[11px] text-[#68778b] sm:block">Clear routes for startup funding</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <span aria-live="polite" className="sr-only">{saveContent.announcement}</span>
-          <span aria-hidden="true" className="hidden items-center gap-2 text-xs text-[#667169] sm:flex" title={saveContent.announcement}>
+          <span aria-hidden="true" className="hidden items-center gap-2 text-xs text-[#68778b] sm:flex" title={saveContent.announcement}>
             <span className={`h-2.5 w-2.5 rounded-full ${saveContent.dotClassName}`} />
             {saveContent.label}
           </span>
           <button
             type="button"
             onClick={onReset}
-            className="min-h-10 rounded-full border border-[#17211b]/12 bg-white px-3.5 py-2 text-xs font-bold transition hover:border-[#173d2c]/35 hover:bg-[#f9faf7] sm:px-4"
+            className="min-h-10 rounded-full border border-[#0a1930]/12 bg-white px-3.5 py-2 text-xs font-bold transition hover:border-[#06275c]/35 hover:bg-[#f7f9fc] sm:px-4"
           >
             Start over
           </button>
@@ -457,18 +452,32 @@ function Field({
   wide?: boolean;
   multiline?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const effectiveStatus = status ?? (isSupportedProfileValue(value) ? "captured" : "missing");
   const className =
-    "mt-2 min-h-12 w-full rounded-2xl border border-[#17211b]/12 bg-white px-4 py-3 text-base text-[#17211b] outline-none transition placeholder:text-[#9ba29d] focus:border-[#3f7d59] focus:ring-4 focus:ring-[#3f7d59]/10 sm:text-sm";
+    "mt-2 min-h-12 w-full rounded-2xl border border-[#0a1930]/12 bg-white px-4 py-3 text-base text-[#0a1930] outline-none transition placeholder:text-[#9ba29d] focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10 sm:text-sm";
   return (
-    <label className={wide ? "sm:col-span-2" : ""}>
-      <span className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#657168]">
-        {label}
-        <span aria-hidden="true" className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold normal-case tracking-normal ${status === "captured" ? "bg-[#dff2e4] text-[#205d3a]" : status === "missing" ? "bg-[#fff1ce] text-[#735511]" : "text-[#8a938d]"}`}>
-          {status === "captured" ? "Captured" : status === "missing" ? "Missing" : "Founder confirms"}
+    <div className={wide ? "sm:col-span-2" : ""}>
+      <span className="flex items-center justify-between gap-3 text-sm font-semibold text-[#36475f]">
+        <span>{label}</span>
+        <span className="flex items-center gap-2">
+          <span aria-hidden="true" className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${effectiveStatus === "captured" ? "bg-[#dff2e4] text-[#205d3a]" : "bg-[#fff1ce] text-[#735511]"}`}>
+            {effectiveStatus === "captured" ? "What we know" : "Still unknown"}
+          </span>
+          <button
+            type="button"
+            aria-label={`Edit ${label}`}
+            onClick={() => (multiline ? textareaRef.current : inputRef.current)?.focus()}
+            className="grid h-8 w-8 place-items-center rounded-full border border-[#0a1930]/10 bg-white text-base text-[#084b9a] transition hover:border-[#084b9a]/35"
+          >
+            ✎
+          </button>
         </span>
       </span>
       {multiline ? (
         <textarea
+          ref={textareaRef}
           aria-label={label}
           value={value}
           onChange={(event) => onChange(event.target.value)}
@@ -478,6 +487,7 @@ function Field({
         />
       ) : (
         <input
+          ref={inputRef}
           aria-label={label}
           type={type}
           value={value}
@@ -488,7 +498,7 @@ function Field({
         />
       )}
       {helper && <span className="mt-2 block text-xs leading-5 text-[#7a847d]">{helper}</span>}
-    </label>
+    </div>
   );
 }
 
@@ -501,6 +511,20 @@ function DecisionPill({ decision }: { decision: Decision }) {
     Skip: "bg-[#f8e6e1] text-[#8b3c2b]",
   };
   return <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${styles[decision]}`}>{decision}</span>;
+}
+
+function SearchExperience() {
+  return (
+    <section className="search-experience" aria-live="polite" aria-busy="true">
+      <div className="thinking-orb" aria-hidden="true">
+        <span className="thinking-orb-core" />
+        <span className="thinking-orb-ring thinking-orb-ring-one" />
+        <span className="thinking-orb-ring thinking-orb-ring-two" />
+      </div>
+      <h1>Finding your strongest routes</h1>
+      <p>Searching current opportunities and checking fit…</p>
+    </section>
+  );
 }
 
 function ExternalSourceConfirmation({
@@ -529,21 +553,21 @@ function ExternalSourceConfirmation({
         aria-labelledby="external-source-heading"
         aria-describedby="external-source-description"
         tabIndex={-1}
-        className="m-auto w-full max-w-2xl rounded-[2rem] border border-white/20 bg-[#f8f6ef] p-5 text-[#17211b] shadow-[0_30px_100px_rgba(8,20,12,0.35)] sm:p-8"
+        className="m-auto w-full max-w-2xl rounded-[2rem] border border-white/20 bg-[#f7f9fc] p-5 text-[#0a1930] shadow-[0_30px_100px_rgba(8,20,12,0.35)] sm:p-8"
       >
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#47795b]">Before you leave Opportunity Map</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#084b9a]">Before you leave Opportunity Map</p>
         <h2 id="external-source-heading" className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Confirm this is still the right route.</h2>
-        <p id="external-source-description" className="mt-3 text-sm leading-6 text-[#5f6b63]">
+        <p id="external-source-description" className="mt-3 text-sm leading-6 text-[#5f6f84]">
           You are about to open <strong>{prompt.title}</strong> on an external official site. Opportunity Map currently labels this record as <strong>{prompt.context}</strong>.
         </p>
 
         <ol className="mt-6 grid gap-3">
           {EXTERNAL_SOURCE_CHECKS.map((item, index) => (
-            <li key={item.label} className="grid grid-cols-[2rem_1fr] gap-3 rounded-2xl border border-[#17211b]/10 bg-white p-4">
-              <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-[#e7f2e9] text-xs font-black text-[#315d43]">{index + 1}</span>
+            <li key={item.label} className="grid grid-cols-[2rem_1fr] gap-3 rounded-2xl border border-[#0a1930]/10 bg-white p-4">
+              <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-[#e7f2e9] text-xs font-black text-[#084b9a]">{index + 1}</span>
               <span>
                 <span className="block text-sm font-bold">{item.label}</span>
-                <span className="mt-1 block text-sm leading-6 text-[#667169]">{item.prompt}</span>
+                <span className="mt-1 block text-sm leading-6 text-[#68778b]">{item.prompt}</span>
               </span>
             </li>
           ))}
@@ -557,7 +581,7 @@ function ExternalSourceConfirmation({
           <button
             type="button"
             onClick={onClose}
-            className="min-h-11 rounded-xl border border-[#17211b]/12 bg-white px-5 py-3 text-sm font-bold"
+            className="min-h-11 rounded-xl border border-[#0a1930]/12 bg-white px-5 py-3 text-sm font-bold"
           >
             Go back
           </button>
@@ -566,7 +590,7 @@ function ExternalSourceConfirmation({
             target="_blank"
             rel="noreferrer"
             onClick={onClose}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#173d2c] px-5 py-3 text-center text-sm font-bold text-white hover:bg-[#235f40]"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#06275c] px-5 py-3 text-center text-sm font-bold text-white hover:bg-[#0968d8]"
           >
             Continue to official source
           </a>
@@ -578,27 +602,30 @@ function ExternalSourceConfirmation({
 
 export default function OpportunityWorkbench() {
   const [stage, setStage] = useState<Stage>("intake");
-  const [method, setMethod] = useState<IntakeMethod>("website");
   const [profile, setProfile] = useState<CompanyProfile>(EMPTY_PROFILE);
   const [externalProcessingConsent, setExternalProcessingConsent] =
     useState(false);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [manualText, setManualText] = useState("");
-  const [documentName, setDocumentName] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [documentMessage, setDocumentMessage] = useState("");
   const [sourceEvidence, setSourceEvidence] = useState<string[]>([]);
   const [intakeStatus, setIntakeStatus] = useState<"idle" | "loading" | "error">("idle");
   const [intakeMessage, setIntakeMessage] = useState("");
   const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
+  const [savedOpportunityIds, setSavedOpportunityIds] = useState<string[]>([]);
   const [checklistByOpportunity, setChecklistByOpportunity] = useState<WorkspaceState["checklistByOpportunity"]>({});
   const [hydrated, setHydrated] = useState(false);
   const [grantsHealth, setGrantsHealth] = useState<SourceHealth>({ status: "idle", message: "" });
-  const [spendingHealth, setSpendingHealth] = useState<SourceHealth>({ status: "idle", message: "" });
+  const [, setSpendingHealth] = useState<SourceHealth>({ status: "idle", message: "" });
   const [matches, setMatches] = useState<RankedOpportunityCard[]>([]);
   const [programs, setPrograms] = useState<ProgramContextRecord[]>([]);
   const [historicalAwards, setHistoricalAwards] = useState<HistoricalAwardRecord[]>([]);
   const [sourceSummaries, setSourceSummaries] = useState<SourceSearchSummary[]>([]);
   const [searchStatus, setSearchStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [reviewMode, setReviewMode] = useState<"questions" | "confirm">("confirm");
+  const [reviewQuestionKeys, setReviewQuestionKeys] = useState<Array<keyof CompanyProfile>>([]);
+  const [reviewQuestionIndex, setReviewQuestionIndex] = useState(0);
   const [durableCredentials, setDurableCredentials] =
     useState<WorkspaceClientCredentials | null>(null);
   const [durableUnavailable, setDurableUnavailable] = useState(false);
@@ -634,6 +661,9 @@ export default function OpportunityWorkbench() {
           }
           if (parsed.sourceSummaries) {
             setSourceSummaries(parsed.sourceSummaries);
+          }
+          if (parsed.savedOpportunityIds) {
+            setSavedOpportunityIds(parsed.savedOpportunityIds);
           }
 
           const credentials = parsed.durableWorkspace;
@@ -708,6 +738,7 @@ export default function OpportunityWorkbench() {
         programs,
         historicalAwards,
         sourceSummaries,
+        savedOpportunityIds,
         durableWorkspace: durableCredentials ?? undefined,
       }),
     );
@@ -722,6 +753,7 @@ export default function OpportunityWorkbench() {
     selectedOpportunityId,
     sourceEvidence,
     sourceSummaries,
+    savedOpportunityIds,
     stage,
   ]);
 
@@ -801,20 +833,14 @@ export default function OpportunityWorkbench() {
     selectedOpportunityId,
   ]);
 
-  const currentNoticeCount = matches.filter((item) => item.sourceKind !== "Program route").length;
   const persistedGrantsSummary = sourceSummaries.find((source) => source.family === "grants");
-  const persistedSpendingSummary = sourceSummaries.find((source) => source.family === "usaspending");
   const effectiveGrantsHealth: SourceHealth = grantsHealth.status === "idle" && persistedGrantsSummary
     ? { status: persistedGrantsSummary.status, message: sourceSummaryMessage(persistedGrantsSummary) }
     : grantsHealth;
-  const effectiveSpendingHealth: SourceHealth = spendingHealth.status === "idle" && persistedSpendingSummary
-    ? { status: persistedSpendingSummary.status, message: sourceSummaryMessage(persistedSpendingSummary) }
-    : spendingHealth;
   const selectedOpportunity =
     matches.find((item) => item.id === selectedOpportunityId) ??
     matches[0] ??
     null;
-  const historicalAward = historicalAwards[0] ?? null;
   const activeChecklist = selectedOpportunityId
     ? checklistByOpportunity[selectedOpportunityId] ?? {}
     : {};
@@ -841,6 +867,15 @@ export default function OpportunityWorkbench() {
     : hydrated
       ? "device-only"
       : "saving";
+  const currentReviewQuestionKey = reviewQuestionKeys[reviewQuestionIndex];
+  const currentReviewQuestion = REQUIRED_REVIEW_QUESTIONS.find(
+    ({ key }) => key === currentReviewQuestionKey,
+  );
+
+  function openProfileReview() {
+    setReviewMode("confirm");
+    setStage("review");
+  }
 
   function resetWorkspace() {
     window.localStorage.removeItem(STORAGE_KEY);
@@ -849,10 +884,11 @@ export default function OpportunityWorkbench() {
     setExternalProcessingConsent(false);
     setWebsiteUrl("");
     setManualText("");
-    setDocumentName("");
+    setUploadedFiles([]);
     setDocumentMessage("");
     setSourceEvidence([]);
     setSelectedOpportunityId("");
+    setSavedOpportunityIds([]);
     setChecklistByOpportunity({});
     setIntakeMessage("");
     setMatches([]);
@@ -860,6 +896,9 @@ export default function OpportunityWorkbench() {
     setHistoricalAwards([]);
     setSourceSummaries([]);
     setSearchStatus("idle");
+    setReviewMode("confirm");
+    setReviewQuestionKeys([]);
+    setReviewQuestionIndex(0);
     setGrantsHealth({ status: "idle", message: "" });
     setSpendingHealth({ status: "idle", message: "" });
     durableCredentialsRef.current = null;
@@ -872,105 +911,97 @@ export default function OpportunityWorkbench() {
     setExternalSourcePrompt(null);
   }
 
-  async function analyzeWebsite(event: FormEvent) {
+  async function continueIntake(event: FormEvent) {
     event.preventDefault();
     if (!externalProcessingConsent) {
       setIntakeStatus("error");
       setIntakeMessage("Consent is required before supplied evidence is sent to OpenAI.");
       return;
     }
+    const hasWebsite = websiteUrl.trim().length > 0;
+    const hasEvidence = manualText.trim().length >= 35;
+    if (!hasWebsite && !hasEvidence) {
+      setIntakeStatus("error");
+      setIntakeMessage("Add a public website or a few sentences about the company before continuing.");
+      return;
+    }
     setIntakeStatus("loading");
     setIntakeMessage("");
     try {
-      const response = await fetch("/api/intake/website", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: websiteUrl,
-          externalProcessingConsent: true,
-        }),
-      });
-      const result = (await response.json()) as WebsiteResponse;
-      if (!response.ok || !result.profile) throw new Error(result.error ?? result.fallback ?? "Website review failed.");
-      const suggestions = pickSupportedEvidenceProfile(result.profile);
-      const website = result.profile
-        && typeof result.profile === "object"
-        && !Array.isArray(result.profile)
-        && typeof (result.profile as Record<string, unknown>).website === "string"
-        ? String((result.profile as Record<string, unknown>).website)
-        : websiteUrl.trim();
-      const nextProfile: CompanyProfile = {
-        ...EMPTY_PROFILE,
-        ...suggestions,
-        website,
-        applicantType: "Unknown — founder input needed",
-        ownership: "Unknown — founder input needed",
-        samStatus: "Unknown",
-      };
-      setProfile(nextProfile);
-      setMatches([]);
-      setPrograms([]);
-      setHistoricalAwards([]);
-      setSourceSummaries([]);
-      setSourceEvidence(
-        (result.evidence ?? []).map((item) => `${item.field}: extracted from ${new URL(item.sourceUrl).hostname}`),
-      );
-      setIntakeMessage(intakeResultMessage(result));
-      setStage("review");
-      setIntakeStatus("idle");
-    } catch (error) {
-      setIntakeStatus("error");
-      setIntakeMessage(error instanceof Error ? error.message : "Use the manual description instead.");
-    }
-  }
+      let nextProfile: CompanyProfile = { ...EMPTY_PROFILE };
+      const nextEvidence: string[] = [];
+      const messages: string[] = [];
 
-  async function submitEvidence(event: FormEvent) {
-    event.preventDefault();
-    if (!externalProcessingConsent) {
-      setIntakeStatus("error");
-      setIntakeMessage("Consent is required before supplied evidence is sent to OpenAI.");
-      return;
-    }
-    if (manualText.trim().length < 35) {
-      setIntakeStatus("error");
-      setIntakeMessage("Add a few sentences about the product, customers, location, and planned use of funds.");
-      return;
-    }
-    setIntakeStatus("loading");
-    setIntakeMessage("");
-    const sourceType = method === "document" ? "pdf" : "manual";
-    try {
-      const response = await fetch("/api/intake/evidence", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceType,
-          evidenceText: manualText.trim(),
-          externalProcessingConsent: true,
-        }),
-      });
-      const result = (await response.json()) as EvidenceResponse;
-      if (!response.ok || !result.profile) {
-        throw new Error(
-          result.error ?? result.fallback ?? "Evidence review failed.",
-        );
+      if (hasWebsite) {
+        const response = await fetch("/api/intake/website", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: websiteUrl.trim(),
+            externalProcessingConsent: true,
+          }),
+        });
+        const result = (await response.json()) as WebsiteResponse;
+        if (!response.ok || !result.profile) {
+          throw new Error(result.error ?? result.fallback ?? "Website review failed.");
+        }
+        nextProfile = {
+          ...nextProfile,
+          ...pickSupportedEvidenceProfile(result.profile),
+          website: websiteUrl.trim(),
+        };
+        nextEvidence.push(...(result.evidence ?? []).map((item) =>
+          `${item.field}: extracted from ${new URL(item.sourceUrl).hostname}`));
+        messages.push(intakeResultMessage(result));
       }
-      setProfile({
-        ...profileFromText(manualText.trim()),
-        ...pickSupportedEvidenceProfile(result.profile),
-      });
+
+      if (hasEvidence) {
+        const sourceType = uploadedFiles.some((file) => file.kind === "pdf") ? "pdf" : "manual";
+        const response = await fetch("/api/intake/evidence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceType,
+            evidenceText: manualText.trim(),
+            externalProcessingConsent: true,
+          }),
+        });
+        const result = (await response.json()) as EvidenceResponse;
+        if (!response.ok || !result.profile) {
+          throw new Error(result.error ?? result.fallback ?? "Evidence review failed.");
+        }
+        nextProfile = {
+          ...nextProfile,
+          ...profileFromText(manualText.trim()),
+          ...pickSupportedEvidenceProfile(result.profile),
+          website: nextProfile.website || websiteUrl.trim(),
+        };
+        nextEvidence.push(...(result.evidence?.length
+          ? result.evidence.map((item) => `${item.field}: supported by submitted evidence.`)
+          : ["Company description: provided by the founder."]));
+        messages.push(intakeResultMessage(result));
+      }
+
+      const confirmedCandidate: CompanyProfile = {
+        ...nextProfile,
+        applicantType: nextProfile.applicantType || "Unknown — founder input needed",
+        ownership: nextProfile.ownership || "Unknown — founder input needed",
+        samStatus: nextProfile.samStatus || "Unknown",
+      };
+      const missingQuestionKeys = REQUIRED_REVIEW_QUESTIONS
+        .filter(({ key }) => !isSupportedProfileValue(confirmedCandidate[key]))
+        .map(({ key }) => key);
+      setProfile(confirmedCandidate);
+      setReviewQuestionKeys(missingQuestionKeys);
+      setReviewQuestionIndex(0);
+      setReviewMode(missingQuestionKeys.length ? "questions" : "confirm");
       setMatches([]);
       setPrograms([]);
       setHistoricalAwards([]);
       setSourceSummaries([]);
-      setSourceEvidence(
-        result.evidence?.length
-          ? result.evidence.map((item) =>
-            `${item.field}: supported by submitted ${sourceType} evidence.`)
-          : [`Company description: provided through ${sourceType} evidence.`],
-      );
+      setSourceEvidence(nextEvidence);
       setIntakeStatus("idle");
-      setIntakeMessage(intakeResultMessage(result));
+      setIntakeMessage(messages[0] ?? "Review the extracted profile before searching.");
       setStage("review");
     } catch (error) {
       setIntakeStatus("error");
@@ -982,31 +1013,49 @@ export default function OpportunityWorkbench() {
     }
   }
 
-  async function handleDocument(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setDocumentMessage("Choose a PDF one-pager.");
-      return;
+  async function handleDocuments(event: ChangeEvent<HTMLInputElement>) {
+    const selected = [...(event.target.files ?? [])];
+    if (!selected.length) return;
+    const room = Math.max(0, 5 - uploadedFiles.length);
+    const accepted = selected.slice(0, room);
+    if (selected.length > room) setDocumentMessage("You can upload up to 5 files.");
+
+    const nextFiles: UploadedFile[] = [];
+    const extractedSnippets: string[] = [];
+    for (const file of accepted) {
+      const extension = file.name.toLowerCase().split(".").pop();
+      if (extension !== "pdf" && extension !== "docx" && extension !== "pptx") {
+        setDocumentMessage("Use a PDF, Word (.docx), or PowerPoint (.pptx) file.");
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        setDocumentMessage(`${file.name} is over the 10 MB limit.`);
+        continue;
+      }
+      let extraction: UploadedFile["extraction"] = "paste-needed";
+      if (extension === "pdf") {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const raw = new TextDecoder("latin1").decode(bytes);
+        const snippets = [...raw.matchAll(/\(([^()]{20,})\)\s*Tj/g)]
+          .map((match) => match[1].replace(/\\[nrt]/g, " ").replace(/\\([()\\])/g, "$1"))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (snippets.length > 80) {
+          extraction = "read";
+          extractedSnippets.push(snippets.slice(0, 5_000));
+        }
+      }
+      nextFiles.push({ name: file.name, size: file.size, kind: extension, extraction });
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setDocumentMessage("That PDF is over the 10 MB limit.");
-      return;
+    setUploadedFiles((current) => [...current, ...nextFiles].slice(0, 5));
+    if (extractedSnippets.length) {
+      setManualText((current) => [current, ...extractedSnippets].filter(Boolean).join("\n\n").slice(0, 12_000));
+      setDocumentMessage("Readable PDF text was added below. Review it before continuing.");
+    } else if (nextFiles.length) {
+      setDocumentMessage("Files attached. Paste their readable company text below if it was not extracted.");
     }
-    setDocumentName(file.name);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const raw = new TextDecoder("latin1").decode(bytes);
-    const snippets = [...raw.matchAll(/\(([^()]{20,})\)\s*Tj/g)]
-      .map((match) => match[1].replace(/\\[nrt]/g, " ").replace(/\\([()\\])/g, "$1"))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (snippets.length > 80) {
-      setManualText(snippets.slice(0, 5_000));
-      setDocumentMessage("Readable text was found. Review it below before continuing.");
-    } else {
-      setDocumentMessage("PDF attached. This file does not expose readable text, so paste its company summary below.");
-    }
+    event.target.value = "";
   }
 
   function updateProfile(key: keyof CompanyProfile, value: string) {
@@ -1067,7 +1116,7 @@ export default function OpportunityWorkbench() {
   }
 
   return (
-    <main className="app-shell min-h-screen overflow-x-hidden text-[#17211b]">
+    <main className="app-shell min-h-screen overflow-x-hidden text-[#0a1930]">
       <AppHeader onReset={resetWorkspace} saveMode={saveMode} />
       <div className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-8 sm:pb-20 sm:pt-7 lg:px-12">
         <StepRail stage={stage} />
@@ -1076,142 +1125,98 @@ export default function OpportunityWorkbench() {
           <section className="pt-10 lg:pt-14">
             <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
               <div className="lg:sticky lg:top-28">
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#3f7557]">Start with what you already have</p>
-                <h1 className="mt-4 max-w-xl text-balance text-4xl font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">
-                  Tell us about the company. We’ll ask only what is missing.
+                <h1 className="max-w-xl text-balance text-4xl font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">
+                  Find the right government resources for your startup.
                 </h1>
-                <p className="mt-5 max-w-xl text-base leading-7 text-[#59655e]">
-                  Every extracted fact stays editable. Matching rules run only after you confirm the profile.
+                <p className="mt-5 max-w-xl text-base leading-7 text-[#5f6f84]">
+                  Add what you already have. We’ll turn it into a profile, ask only what is missing, and show the strongest defensible routes.
                 </p>
 
-                <div className="mt-8 rounded-[1.75rem] border border-[#173d2c]/10 bg-[#173d2c] p-6 text-white shadow-[0_24px_65px_rgba(23,61,44,0.18)]">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a9d7b8]">What the map will not do</p>
-                  <ul className="mt-5 grid gap-3 text-sm text-white/85">
-                    <li>It will not call you eligible without official verification.</li>
-                    <li>It will not mix historical awards with open opportunities.</li>
-                    <li>It will not fill an application field without a known source.</li>
+                <div className="mt-8 max-w-xl border-l-2 border-[#06275c]/20 pl-5">
+                  <ul className="grid gap-3 text-sm leading-6 text-[#5f6f84]">
+                    <li>Official sources stay attached to every result.</li>
+                    <li>Unknown facts stay unknown until you confirm them.</li>
+                    <li>Historical awards never appear as open funding.</li>
                   </ul>
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-[#17211b]/10 bg-white/80 p-5 shadow-[0_22px_70px_rgba(23,33,27,0.08)] sm:p-7">
-                <div role="group" aria-label="Choose an intake method" className="grid grid-cols-3 gap-1.5 rounded-2xl bg-[#edf0ea] p-1.5 sm:gap-2">
-                  {([
-                    ["website", "Website"],
-                    ["document", "PDF"],
-                    ["manual", "Describe it"],
-                  ] as Array<[IntakeMethod, string]>).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={method === value}
-                      onClick={() => {
-                        setMethod(value);
-                        setIntakeMessage("");
-                      }}
-                      className={`min-h-11 rounded-xl px-2 py-2.5 text-xs font-semibold transition sm:px-3 sm:text-sm ${
-                        method === value ? "bg-white text-[#173d2c] shadow-sm" : "text-[#6b756e] hover:text-[#2f4d3b]"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+              <div className="rounded-[2rem] border border-[#0a1930]/10 bg-white/80 p-5 shadow-[0_22px_70px_rgba(23,33,27,0.08)] sm:p-7">
+                <form onSubmit={continueIntake}>
+                  <label htmlFor="website-url" className="block text-sm font-bold text-[#36475f]">Company website</label>
+                  <input
+                    id="website-url"
+                    type="url"
+                    value={websiteUrl}
+                    onChange={(event) => setWebsiteUrl(event.target.value)}
+                    placeholder="https://yourcompany.com"
+                    className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3.5 text-base outline-none transition focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
+                  />
 
-                <div className="mt-5 rounded-2xl border border-[#d5c58f]/55 bg-[#fff9e9] p-4 text-sm leading-6 text-[#66531c]">
-                  <p className="font-bold">OpenAI processing disclosure</p>
-                  <p className="mt-1 text-xs leading-5">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
-                  <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl bg-white/75 px-3 py-3 text-xs font-semibold leading-5">
-                    <input
-                      type="checkbox"
-                      checked={externalProcessingConsent}
-                      onChange={(event) => {
-                        setExternalProcessingConsent(event.target.checked);
-                        setIntakeMessage("");
-                      }}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#2f704a]"
-                    />
-                    <span>I consent to this processing for the evidence I submit.</span>
-                  </label>
-                </div>
-
-                {method === "website" && (
-                  <form onSubmit={analyzeWebsite} className="mt-7">
-                    <label htmlFor="website-url" className="text-xs font-bold uppercase tracking-[0.13em] text-[#647067]">Public HTTPS company website</label>
-                    <input
-                      id="website-url"
-                      type="url"
-                      required
-                      value={websiteUrl}
-                      onChange={(event) => setWebsiteUrl(event.target.value)}
-                      placeholder="https://yourcompany.com"
-                      className="mt-2 w-full rounded-2xl border border-[#17211b]/12 bg-white px-4 py-4 text-base outline-none transition focus:border-[#3f7d59] focus:ring-4 focus:ring-[#3f7d59]/10"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!externalProcessingConsent || intakeStatus === "loading"}
-                      className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
-                    >
-                      {intakeStatus === "loading" ? "Reviewing public website…" : "Build a reviewable profile"}
-                    </button>
-                    <p className="mt-3 text-xs leading-5 text-[#778078]">Public page text only. Private pages, logins, and non-HTTPS addresses are blocked.</p>
-                  </form>
-                )}
-
-                {method === "document" && (
-                  <div className="mt-7">
-                    <label className="grid cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-[#3f7557]/40 bg-[#f5f8f3] px-6 py-10 text-center transition hover:border-[#3f7557]">
-                      <input type="file" accept="application/pdf,.pdf" className="sr-only" onChange={handleDocument} />
-                      <span className="grid h-11 w-11 place-items-center rounded-full bg-[#dff2e4] text-xl font-semibold text-[#205d3a]">+</span>
-                      <span className="mt-4 text-sm font-bold">Choose one PDF one-pager</span>
-                      <span className="mt-1 text-xs text-[#748077]">Up to 10 MB. Only extracted or pasted text is sent; the PDF binary stays in this browser.</span>
-                    </label>
-                    {documentName && <p className="mt-3 text-sm font-semibold text-[#315d43]">Attached: {documentName}</p>}
-                    {documentMessage && <p className="mt-2 text-xs leading-5 text-[#6b756e]">{documentMessage}</p>}
-                    <form onSubmit={submitEvidence} className="mt-5">
-                      <label htmlFor="document-summary" className="text-xs font-bold uppercase tracking-[0.13em] text-[#647067]">Extracted or pasted company summary</label>
-                      <textarea
-                        id="document-summary"
-                        value={manualText}
-                        onChange={(event) => setManualText(event.target.value)}
-                        rows={6}
-                        placeholder="Paste the one-pager text here if the PDF is image-based."
-                        className="mt-2 w-full rounded-2xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#3f7d59] focus:ring-4 focus:ring-[#3f7d59]/10"
+                  <div className="mt-5">
+                    <label className="grid cursor-pointer place-items-center rounded-xl border border-dashed border-[#0968d8]/35 bg-[#f5f8fc] px-5 py-6 text-center transition hover:border-[#0968d8]">
+                      <input
+                        type="file"
+                        multiple
+                        accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx"
+                        className="sr-only"
+                        onChange={handleDocuments}
+                        disabled={uploadedFiles.length >= 5}
                       />
-                      <button
-                        type="submit"
-                        disabled={!externalProcessingConsent || intakeStatus === "loading"}
-                        className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
-                      >
-                        {intakeStatus === "loading" ? "Reviewing PDF evidence…" : "Review extracted profile"}
-                      </button>
-                    </form>
+                      <span className="text-sm font-bold">Add PDF, Word, or PowerPoint files</span>
+                      <span className="mt-1 text-xs text-[#718095]">Up to 5 files, 10 MB each</span>
+                    </label>
+                    {uploadedFiles.length > 0 && (
+                      <ul className="mt-3 grid gap-2" aria-label="Attached files">
+                        {uploadedFiles.map((file) => (
+                          <li key={`${file.name}-${file.size}`} className="flex items-center justify-between gap-3 rounded-xl border border-[#0a1930]/8 bg-white px-3 py-2 text-sm">
+                            <span className="min-w-0 truncate"><strong>{file.name}</strong> <span className="text-[#718095]">· {file.extraction === "read" ? "text ready" : "paste text below"}</span></span>
+                            <button type="button" onClick={() => setUploadedFiles((current) => current.filter((item) => item !== file))} className="shrink-0 text-xs font-bold text-[#5e6c80]">Remove</button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {documentMessage && <p className="mt-2 text-xs leading-5 text-[#68778b]">{documentMessage}</p>}
                   </div>
-                )}
 
-                {method === "manual" && (
-                  <form onSubmit={submitEvidence} className="mt-7">
-                    <label htmlFor="manual-summary" className="text-xs font-bold uppercase tracking-[0.13em] text-[#647067]">Plain-language company description</label>
-                    <textarea
-                      id="manual-summary"
-                      value={manualText}
-                      onChange={(event) => setManualText(event.target.value)}
-                      rows={8}
-                      placeholder="We’re a Utah company building… We sell to… We need funding for…"
-                      className="mt-2 w-full rounded-2xl border border-[#17211b]/12 bg-white px-4 py-4 text-sm leading-6 outline-none focus:border-[#3f7d59] focus:ring-4 focus:ring-[#3f7d59]/10"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!externalProcessingConsent || intakeStatus === "loading"}
-                      className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
-                    >
-                      {intakeStatus === "loading" ? "Reviewing supplied evidence…" : "Turn this into a profile"}
-                    </button>
-                  </form>
-                )}
+                  <label htmlFor="manual-summary" className="mt-5 block text-sm font-bold text-[#36475f]">Anything else we should know?</label>
+                  <textarea
+                    id="manual-summary"
+                    value={manualText}
+                    onChange={(event) => setManualText(event.target.value)}
+                    rows={5}
+                    placeholder="Describe the product, customers, location, project, and what funding would support."
+                    className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
+                  />
+
+                  <details className="mt-5 rounded-xl border border-[#0a1930]/10 bg-[#f8fafd] px-4 py-3 text-sm">
+                    <summary className="cursor-pointer font-bold text-[#36475f]">How your information is processed</summary>
+                    <p className="mt-2 text-xs leading-5 text-[#66758a]">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
+                    <label className="mt-3 flex cursor-pointer items-start gap-3 text-xs font-semibold leading-5">
+                      <input
+                        type="checkbox"
+                        checked={externalProcessingConsent}
+                        onChange={(event) => {
+                          setExternalProcessingConsent(event.target.checked);
+                          setIntakeMessage("");
+                        }}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[#0968d8]"
+                      />
+                      <span>I consent to this processing for the evidence I submit.</span>
+                    </label>
+                  </details>
+
+                  <button
+                    type="submit"
+                    disabled={!externalProcessingConsent || intakeStatus === "loading"}
+                    className="mt-5 w-full rounded-xl bg-[#06275c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#084b9a] disabled:cursor-wait disabled:opacity-65"
+                  >
+                    {intakeStatus === "loading" ? "Building your profile…" : "Continue"}
+                  </button>
+                </form>
 
                 {intakeMessage && (
-                  <div role={intakeStatus === "error" ? "alert" : "status"} className={`mt-4 rounded-2xl px-4 py-3 text-sm ${intakeStatus === "error" ? "bg-[#fff0e9] text-[#8b3c21]" : "bg-[#edf5ef] text-[#315d43]"}`}>
+                  <div role={intakeStatus === "error" ? "alert" : "status"} className={`mt-4 rounded-2xl px-4 py-3 text-sm ${intakeStatus === "error" ? "bg-[#fff0e9] text-[#8b3c21]" : "bg-[#edf5ef] text-[#084b9a]"}`}>
                     {intakeMessage}
                   </div>
                 )}
@@ -1221,15 +1226,54 @@ export default function OpportunityWorkbench() {
           </section>
         )}
 
-        {stage === "review" && (
+        {stage === "review" && searchStatus === "loading" && <SearchExperience />}
+
+        {stage === "review" && searchStatus !== "loading" && reviewMode === "questions" && currentReviewQuestion && (
+          <section className="mx-auto max-w-2xl pt-12 sm:pt-16">
+            <p className="text-sm font-semibold text-[#68778b]">{reviewQuestionIndex + 1} of {reviewQuestionKeys.length}</p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">{currentReviewQuestion.label}</h1>
+            <p className="mt-4 max-w-xl text-base leading-7 text-[#5f6f84]">{currentReviewQuestion.why}</p>
+            <div className="mt-8 rounded-2xl border border-[#0a1930]/10 bg-white p-5 shadow-[0_18px_50px_rgba(6,39,92,0.06)] sm:p-7">
+              <Field
+                label={currentReviewQuestion.label}
+                value={String(profile[currentReviewQuestion.key] ?? "")}
+                onChange={(value) => updateProfile(currentReviewQuestion.key, value)}
+                placeholder={currentReviewQuestion.placeholder}
+                multiline={currentReviewQuestion.multiline}
+                status={isSupportedProfileValue(profile[currentReviewQuestion.key]) ? "captured" : "missing"}
+              />
+              <div className="mt-6 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => reviewQuestionIndex > 0 ? setReviewQuestionIndex((index) => index - 1) : setStage("intake")}
+                  className="min-h-11 rounded-xl border border-[#0a1930]/12 bg-white px-5 py-3 text-sm font-bold text-[#06275c]"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={!isSupportedProfileValue(profile[currentReviewQuestion.key])}
+                  onClick={() => {
+                    if (reviewQuestionIndex === reviewQuestionKeys.length - 1) setReviewMode("confirm");
+                    else setReviewQuestionIndex((index) => index + 1);
+                  }}
+                  className="min-h-11 rounded-xl bg-[#06275c] px-6 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {stage === "review" && searchStatus !== "loading" && reviewMode === "confirm" && (
           <section className="pt-10">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#3f7557]">Founder verification</p>
-                <h1 className="mt-3 text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">Confirm the facts before matching.</h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6b63]">Unknown fields stay unknown. They can lower confidence, but the system will not guess.</p>
+                <h1 className="text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">Confirm your profile.</h1>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6f84]">Unknown fields stay unknown. They can lower confidence, but the system will not guess.</p>
               </div>
-              <button type="button" onClick={() => setStage("intake")} className="w-fit rounded-full border border-[#17211b]/12 bg-white px-4 py-2.5 text-sm font-semibold">
+              <button type="button" onClick={() => setStage("intake")} className="w-fit rounded-full border border-[#0a1930]/12 bg-white px-4 py-2.5 text-sm font-semibold">
                 Change intake
               </button>
             </div>
@@ -1239,9 +1283,8 @@ export default function OpportunityWorkbench() {
                 <section aria-labelledby="founder-contact-heading" className="rounded-[2rem] border border-[#7eb08e]/25 bg-[#edf5ef] p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-7">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#3f7557]">Application contact</p>
-                      <h2 id="founder-contact-heading" className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Who should own the application?</h2>
-                      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f6b63]">Values already found in intake evidence stay filled. We ask only for contact details that are still missing.</p>
+                      <h2 id="founder-contact-heading" className="text-2xl font-semibold tracking-[-0.035em]">What you added</h2>
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f6f84]">Values already found in intake evidence stay filled. We ask only for contact details that are still missing.</p>
                     </div>
                     <span className={`w-fit shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${missingFounderContact.length ? "bg-[#fff1ce] text-[#735511]" : "bg-[#dff2e4] text-[#205d3a]"}`}>
                       {missingFounderContact.length ? `${missingFounderContact.length} missing` : "Contact ready"}
@@ -1276,10 +1319,10 @@ export default function OpportunityWorkbench() {
                   </div>
                 </section>
 
-                <section aria-labelledby="company-profile-heading" className="rounded-[2rem] border border-[#17211b]/10 bg-white/85 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.06)] sm:p-7">
+                <section aria-labelledby="company-profile-heading" className="rounded-[2rem] border border-[#0a1930]/10 bg-white/85 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.06)] sm:p-7">
                   <div className="mb-6">
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#667169]">Company evidence</p>
-                    <h2 id="company-profile-heading" className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Confirm the organization profile</h2>
+                    <h2 id="company-profile-heading" className="text-2xl font-semibold tracking-[-0.035em]">What we know</h2>
+                    <p className="mt-2 text-sm leading-6 text-[#5f6f84]">Use the edit icon beside any value to change only that field.</p>
                   </div>
                   <div className="grid gap-5 sm:grid-cols-2">
                     <Field label="Company name" value={profile.companyName} onChange={(value) => updateProfile("companyName", value)} placeholder="Legal or public name" autoComplete="organization" />
@@ -1304,7 +1347,7 @@ export default function OpportunityWorkbench() {
               </div>
 
               <aside className="space-y-4 xl:sticky xl:top-24">
-                <div className="rounded-[1.75rem] border border-[#17211b]/10 bg-[#173d2c] p-6 text-white">
+                <div className="rounded-[1.75rem] border border-[#0a1930]/10 bg-[#06275c] p-6 text-white">
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#acd8ba]">Profile provenance</p>
                   <ul className="mt-5 grid gap-3 text-sm leading-6 text-white/85">
                     {sourceEvidence.length ? sourceEvidence.map((item) => <li key={item}>{item}</li>) : <li>No source recorded yet.</li>}
@@ -1312,7 +1355,7 @@ export default function OpportunityWorkbench() {
                   </ul>
                 </div>
                 <div className={`rounded-[1.75rem] border p-6 ${missingFounderContact.length ? "border-[#d9b45f]/35 bg-[#fff7e5]" : "border-[#8fc59f]/40 bg-[#edf7ef]"}`}>
-                  <p className={`text-xs font-bold uppercase tracking-[0.16em] ${missingFounderContact.length ? "text-[#795c19]" : "text-[#315d43]"}`}>Workspace contact</p>
+                  <p className={`text-xs font-bold uppercase tracking-[0.16em] ${missingFounderContact.length ? "text-[#795c19]" : "text-[#084b9a]"}`}>Workspace contact</p>
                   {missingFounderContact.length ? (
                     <>
                       <p className="mt-3 text-sm leading-6 text-[#6c5a2d]">Add only the contact details the intake evidence did not provide:</p>
@@ -1321,7 +1364,7 @@ export default function OpportunityWorkbench() {
                       </ul>
                     </>
                   ) : (
-                    <p className="mt-3 text-sm font-semibold leading-6 text-[#315d43]">Founder contact is ready for source-backed application prefill.</p>
+                    <p className="mt-3 text-sm font-semibold leading-6 text-[#084b9a]">Founder contact is ready for source-backed application prefill.</p>
                   )}
                 </div>
                 <div className="rounded-[1.75rem] border border-[#d9b45f]/35 bg-[#fff7e5] p-6">
@@ -1336,10 +1379,9 @@ export default function OpportunityWorkbench() {
                 <button
                   type="button"
                   onClick={() => void buildMap()}
-                  disabled={searchStatus === "loading"}
-                  className="min-h-14 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white shadow-[0_16px_35px_rgba(23,61,44,0.18)] transition hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
+                  className="min-h-14 w-full rounded-2xl bg-[#06275c] px-5 py-4 text-sm font-bold text-white shadow-[0_16px_35px_rgba(23,61,44,0.18)] transition hover:bg-[#084b9a] disabled:cursor-wait disabled:opacity-65"
                 >
-                  {searchStatus === "loading" ? "Searching official sources…" : "Confirm profile and build map"}
+                  Find my resources
                 </button>
               </aside>
             </div>
@@ -1347,256 +1389,43 @@ export default function OpportunityWorkbench() {
         )}
 
         {stage === "results" && (
-          <section className="pt-10">
-            <div role="status" className={`rounded-[1.5rem] border px-4 py-4 text-sm sm:px-5 ${effectiveGrantsHealth.status === "live" ? "border-[#8fc59f]/55 bg-[#edf7ef] text-[#28583a]" : effectiveGrantsHealth.status === "unavailable" ? "border-[#d79c8d]/45 bg-[#fff1ec] text-[#7b3827]" : "border-[#d5c58f]/50 bg-[#fff9e9] text-[#66531c]"}`}>
-              <div className="sm:flex sm:items-center sm:justify-between sm:gap-5">
-                <p>
-                  <span className="font-bold">Source mode:</span>{" "}
-                  {currentNoticeCount
-                    ? `${currentNoticeCount} current Grants.gov record${currentNoticeCount === 1 ? "" : "s"} ranked; program definitions and historical awards remain separate.`
-                    : "No sourced current opportunity passed the deterministic relevance threshold."}
-                </p>
-                <span className="mt-2 inline-flex shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold sm:mt-0">
-                  {effectiveGrantsHealth.status === "checking"
-                    ? "Checking live catalog"
-                    : effectiveGrantsHealth.status === "live"
-                      ? "Live API validated"
-                      : effectiveGrantsHealth.status === "cached-fallback"
-                        ? "Official fallback active"
-                        : effectiveGrantsHealth.status === "cached"
-                          ? "Official snapshot"
-                          : effectiveGrantsHealth.status === "unavailable"
-                            ? "Source unavailable"
-                            : "Source status pending"}
-                </span>
-              </div>
-              {effectiveGrantsHealth.message && <p className="mt-2 text-xs leading-5 opacity-80">{effectiveGrantsHealth.message}</p>}
-              {sourceSummaries.length > 0 && (
-                <p className="mt-2 text-xs leading-5 opacity-80">
-                  Source checks: {sourceSummaries.map((source) => `${source.family} ${source.status} (${source.recordCount})`).join(" · ")}
-                </p>
-              )}
-            </div>
-
-            <div className="mt-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#3f7557]">Government Opportunity Map</p>
-                <h1 className="mt-3 max-w-4xl text-balance text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  {matches.length ? `${matches.length} route${matches.length === 1 ? "" : "s"} worth a careful look.` : "No strong traditional grant match found."}
-                </h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6b63]">
-                  {matches.length
-                    ? "Each route shows its evidence score, source freshness, and remaining verification work before you decide whether to pursue."
-                    : "No current or forecasted record cleared the deterministic relevance and eligibility gates for this confirmed profile."}
-                </p>
-              </div>
-              <button type="button" onClick={() => setStage("review")} className="w-fit rounded-full border border-[#17211b]/12 bg-white px-4 py-2.5 text-sm font-semibold">Edit verified profile</button>
-            </div>
-
-            {matches.length ? (
-              <div className="mt-8 grid gap-5">
-                {matches.map((opportunity, index) => (
-                  <article key={opportunity.id} className="overflow-hidden rounded-[2rem] border border-[#17211b]/10 bg-white/85 shadow-[0_20px_65px_rgba(23,33,27,0.06)]">
-                    <div className="grid lg:grid-cols-[0.68fr_0.32fr]">
-                      <div className="p-6 sm:p-8">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-[#17211b] px-3 py-1.5 text-xs font-bold text-white">#{index + 1}</span>
-                          <DecisionPill decision={opportunity.decision} />
-                          <span className="rounded-full bg-[#eef1ed] px-3 py-1.5 text-xs font-semibold text-[#526058]">{opportunity.fitTier}</span>
-                          <span className="rounded-full border border-[#17211b]/10 bg-white px-3 py-1.5 text-xs font-semibold text-[#526058]" title="Deterministic evidence score, not an eligibility determination">Evidence {opportunity.score}/100</span>
-                        </div>
-                        <p className="mt-6 text-xs font-bold uppercase tracking-[0.15em] text-[#47795b]">{opportunity.agency}</p>
-                        <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">{opportunity.title}</h2>
-                        <p className="mt-2 text-sm text-[#69746d]">{opportunity.opportunityNumber}</p>
-
-                        <div className="mt-7 grid gap-3 sm:grid-cols-3">
-                          <div className="rounded-2xl bg-[#f2f4ef] p-4"><p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#788078]">Relationship</p><p className="mt-2 text-sm font-semibold">{opportunity.sourceKind}</p></div>
-                          <div className="rounded-2xl bg-[#f2f4ef] p-4"><p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#788078]">Deadline</p><p className="mt-2 text-sm font-semibold">{opportunity.deadline}</p></div>
-                          <div className="rounded-2xl bg-[#f2f4ef] p-4"><p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#788078]">Potential value</p><p className="mt-2 text-sm font-semibold">{opportunity.amount}</p></div>
-                        </div>
-
-                        <div className="mt-7 grid gap-6 md:grid-cols-2">
-                          <div>
-                            <p className="text-xs font-bold uppercase tracking-[0.13em] text-[#2f704a]">Why it may fit</p>
-                            <ul className="mt-3 grid gap-2 text-sm leading-6 text-[#536159]">{opportunity.reasons.map((item) => <li key={item} className="flex gap-2"><span className="text-[#3d8a59]">✓</span><span>{item}</span></li>)}</ul>
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold uppercase tracking-[0.13em] text-[#8a5b1e]">What could block it</p>
-                            <ul className="mt-3 grid gap-2 text-sm leading-6 text-[#655a49]">{opportunity.concerns.map((item) => <li key={item} className="flex gap-2"><span className="text-[#c38632]">!</span><span>{item}</span></li>)}</ul>
-                          </div>
-                        </div>
-                      </div>
-
-                      <aside className="border-t border-[#17211b]/10 bg-[#173d2c] p-6 text-white lg:border-l lg:border-t-0 sm:p-8">
-                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#acd8ba]">Decision reason</p>
-                        <p className="mt-4 text-sm leading-6 text-white/85">{opportunity.relationship}</p>
-                        <p className="mt-7 text-xs font-bold uppercase tracking-[0.16em] text-[#acd8ba]">Best next action</p>
-                        <p className="mt-3 text-base font-semibold leading-7">{opportunity.nextAction}</p>
-                        <div className="mt-8 grid gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setExternalSourcePrompt({
-                              url: opportunity.sourceUrl,
-                              title: opportunity.title,
-                              context: opportunity.sourceKind,
-                            })}
-                            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-center text-sm font-bold hover:bg-white/15"
-                          >
-                            Open official source
-                          </button>
-                          <button type="button" onClick={() => openWorkspace(opportunity)} className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#173d2c] hover:bg-[#edf6ef]">Prepare application workspace</button>
-                        </div>
-                        <p className="mt-4 text-xs leading-5 text-white/60">{opportunity.sourceLabel} · Retrieved {opportunity.retrievedAt}</p>
-                      </aside>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-8 grid gap-5 lg:grid-cols-[0.65fr_0.35fr]">
-                <div className="rounded-[2rem] border border-[#17211b]/10 bg-white/85 p-7 sm:p-9">
-                  <span className="inline-flex rounded-full bg-[#e9edef] px-3 py-1.5 text-xs font-bold text-[#43535c]">Honest no-match</span>
-                  <h2 className="mt-6 text-3xl font-semibold tracking-[-0.04em]">Do not force a grant-shaped answer.</h2>
-                  <p className="mt-4 max-w-2xl text-base leading-7 text-[#5f6b63]">The official records searched did not produce a current route with enough relevant evidence and no disqualifying eligibility result. That is safer than turning a broad keyword into a recommendation.</p>
-                  <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                    {["Clarify the exact government problem the project solves", "Confirm applicant type, ownership, and registration facts", "Look for government-customer demand in historical awards", "Search again when a specific R&D or public-purpose project exists"].map((item) => <div key={item} className="rounded-2xl bg-[#f2f4ef] p-4 text-sm font-semibold leading-6">{item}</div>)}
-                  </div>
-                </div>
-                <aside className="rounded-[2rem] border border-[#d9b45f]/35 bg-[#fff7e5] p-7">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#795c19]">Why this is useful</p>
-                  <p className="mt-4 text-lg font-semibold leading-7 text-[#5f4a18]">It prevents a founder from spending weeks on an application built around a superficial keyword match.</p>
-                  <button type="button" onClick={() => setStage("review")} className="mt-7 w-full rounded-2xl border border-[#795c19]/20 bg-white px-4 py-3 text-sm font-bold text-[#5f4a18]">Add a specific R&D project</button>
-                </aside>
-              </div>
-            )}
-
-            <section aria-labelledby="program-context-heading" className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-[#f7f5ee] p-6 sm:p-7">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Program context</p>
-                  <h2 id="program-context-heading" className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Understand the program behind a notice</h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#59655e]">Assistance Listings explain a federal program’s purpose. They are background only and are never presented as an open funding opportunity.</p>
-                </div>
-                <span className="w-fit shrink-0 rounded-full bg-[#fff1ce] px-3 py-1.5 text-xs font-bold text-[#735511]">Not open funding</span>
-              </div>
-              {programs.length ? (
-                <div className="mt-6 grid gap-4">
-                  {programs.map((program) => (
-                    <article key={program.id} className="rounded-2xl border border-[#17211b]/10 bg-white p-5 sm:p-6">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-[#eef1ed] px-3 py-1 text-[11px] font-bold text-[#526058]">ALN {program.assistanceListing}</span>
-                        <span className="rounded-full border border-[#17211b]/10 bg-white px-3 py-1 text-[11px] font-bold text-[#526058]">{PROGRAM_SNAPSHOT_LABELS[program.source.snapshotStatus]}</span>
-                      </div>
-                      <p className="mt-4 text-xs font-bold uppercase tracking-[0.13em] text-[#47795b]">{program.agency}</p>
-                      <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{program.title}</h3>
-                      <p className="mt-3 text-sm leading-6 text-[#59655e]">{program.objective || "The official source did not provide a program objective."}</p>
-                      <div className="mt-5 flex flex-col gap-3 border-t border-[#17211b]/8 pt-4 text-xs text-[#778179] sm:flex-row sm:items-center sm:justify-between">
-                        <p>{program.source.sourceName} · Source ID {program.source.sourceId} · Retrieved {displayDate(program.source.retrievedAt)}</p>
-                        <button
-                          type="button"
-                          onClick={() => setExternalSourcePrompt({
-                            url: program.source.sourceUrl,
-                            title: program.title,
-                            context: "Program context — not open funding",
-                          })}
-                          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[#17211b]/12 bg-white px-4 py-2 font-bold text-[#315d43]"
-                        >
-                          Open official program record
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-6 rounded-2xl border border-[#17211b]/8 bg-white px-5 py-4 text-sm leading-6 text-[#59655e]">
-                  No supported program-context record is available for this search. No program is being substituted for an open notice.
-                </div>
-              )}
-            </section>
-
-            {historicalAward ? (
-              <div className="mt-8 overflow-hidden rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed]">
-                <div className="grid lg:grid-cols-[0.7fr_0.3fr]">
-                  <div className="p-6 sm:p-7">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Historical intelligence</p>
-                      <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-[#59655e]">Historical award · not open funding</span>
-                    </div>
-                    <h2 className="mt-4 text-2xl font-semibold tracking-[-0.035em]">{historicalAward.recipient}</h2>
-                    <p className="mt-2 text-sm leading-6 text-[#59655e]">{historicalAward.description || historicalAward.title}</p>
-                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Historical award amount</p><p className="mt-2 text-sm font-bold">{historicalAward.amount ? historicalAward.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "Not reported"}</p></div>
-                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Award ID</p><p className="mt-2 text-sm font-bold">{historicalAward.source.sourceId}</p></div>
-                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Assistance Listing</p><p className="mt-2 text-sm font-bold">{historicalAward.assistanceListing || "Not provided"}</p></div>
-                    </div>
-                  </div>
-                  <aside className="border-t border-[#17211b]/10 bg-white/70 p-6 lg:border-l lg:border-t-0">
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#667169]">What this proves</p>
-                    <p className="mt-3 text-sm leading-6 text-[#59655e]">This {historicalAward.source.sourceName} record is historical context only. It is not an open opportunity and does not prove current eligibility.</p>
-                    <p className="mt-4 text-xs leading-5 text-[#7a837d]">Period: {displayDate(historicalAward.startDate)} to {displayDate(historicalAward.endDate)}</p>
-                    <button
-                      type="button"
-                      onClick={() => setExternalSourcePrompt({
-                        url: historicalAward.source.sourceUrl,
-                        title: historicalAward.title,
-                        context: "Historical award — not open funding",
-                      })}
-                      className="mt-5 inline-flex rounded-xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm font-bold text-[#315d43]"
-                    >
-                      Open official award record
-                    </button>
-                    {effectiveSpendingHealth.message && (
-                      <div className="mt-4 rounded-xl border border-[#17211b]/8 bg-white px-3 py-3">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#47795b]">
-                          {effectiveSpendingHealth.status === "checking" ? "Checking live source" : effectiveSpendingHealth.status === "live" ? "Live API validated" : effectiveSpendingHealth.status === "unavailable" ? "Source unavailable" : "Audited fallback"}
-                        </p>
-                        <p className="mt-1 text-[11px] leading-5 text-[#778179]">{effectiveSpendingHealth.message}</p>
-                      </div>
-                    )}
-                    <p className="mt-3 text-[11px] text-[#8a938d]">Historical record · Retrieved {displayDate(historicalAward.source.retrievedAt)}</p>
-                  </aside>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed] p-6 sm:flex sm:items-center sm:justify-between sm:gap-6">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Historical intelligence</p>
-                  <p className="mt-2 text-sm leading-6 text-[#59655e]">No audited historical award is shown for this profile yet. The product will not substitute an unrelated award.</p>
-                </div>
-                <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#59655e] sm:mt-0">No supported insight</span>
-              </div>
-            )}
-
-            <div className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-white/75 p-6 sm:p-7">
-              <div className="grid gap-5 lg:grid-cols-[0.36fr_0.64fr] lg:items-start">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Ranking rules</p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Evidence first. Eligibility before optimism.</h2>
-                </div>
-                <div>
-                  <p className="text-sm leading-6 text-[#59655e]">Hard applicant restrictions run before ranking. Unknown critical facts cap the result, partner routes require real thematic relevance, and deadlines break ties only. The score is evidence strength, not an eligibility decision.</p>
-                  <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-bold text-[#526058]">
-                    {["Mission 25", "Exact terms 20", "Concepts 15", "Technology/R&D 15", "Customer/use 10", "Amount 10", "Geography 5"].map((item) => (
-                      <span key={item} className="rounded-full bg-[#eef1ed] px-3 py-1.5">{item}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+          <ResourceDashboard
+            matches={matches.filter((match) => match.decision !== "Skip")}
+            profile={profile}
+            savedOpportunityIds={savedOpportunityIds}
+            checklistByOpportunity={checklistByOpportunity}
+            sourceMessage={effectiveGrantsHealth.message || "Official source status is available inside each expanded result."}
+            onSavedChange={setSavedOpportunityIds}
+            onChecklistChange={(opportunityId, itemId, checked) => {
+              setSelectedOpportunityId(opportunityId);
+              setChecklistByOpportunity((current) => setChecklistItem(
+                { version: 2, selectedOpportunityId: opportunityId, checklistByOpportunity: current },
+                opportunityId,
+                itemId,
+                checked,
+              ).checklistByOpportunity);
+            }}
+            onEditProfile={openProfileReview}
+            onOpenWorkspace={openWorkspace}
+            onOpenSource={(opportunity) => setExternalSourcePrompt({
+              url: opportunity.sourceUrl,
+              title: opportunity.title,
+              context: opportunity.sourceKind,
+            })}
+          />
         )}
 
         {stage === "workspace" && selectedOpportunity && (
           <section className="pt-8 sm:pt-10">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#3f7557]">Application workspace</p>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#0968d8]">Application workspace</p>
                 <h1 className="mt-3 max-w-4xl text-balance text-[2.5rem] font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">Move forward without inventing an answer.</h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6b63]">Known facts are organized below and unsupported answers stay visibly blank. Nothing here submits to a government system.</p>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6f84]">Known facts are organized below and unsupported answers stay visibly blank. Nothing here submits to a government system.</p>
                 <div className="mt-5 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[#edf5ef] px-3 py-1.5 text-xs font-bold text-[#315d43]">{knownApplicationFieldCount} of {applicationFieldStatus.length} prefill fields ready</span>
-                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#59655e]">{completedCount} of {INITIAL_CHECKLIST.length} tasks complete</span>
-                  <span className="rounded-full border border-[#17211b]/10 bg-white/55 px-3 py-1.5 text-xs font-bold text-[#59655e]">
+                  <span className="rounded-full bg-[#edf5ef] px-3 py-1.5 text-xs font-bold text-[#084b9a]">{knownApplicationFieldCount} of {applicationFieldStatus.length} prefill fields ready</span>
+                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#5f6f84]">{completedCount} of {INITIAL_CHECKLIST.length} tasks complete</span>
+                  <span className="rounded-full border border-[#0a1930]/10 bg-white/55 px-3 py-1.5 text-xs font-bold text-[#5f6f84]">
                     {saveMode === "durable"
                       ? "Saved durably"
                       : saveMode === "device-only"
@@ -1605,12 +1434,12 @@ export default function OpportunityWorkbench() {
                   </span>
                 </div>
               </div>
-              <button type="button" onClick={() => setStage("results")} className="min-h-11 w-fit rounded-full border border-[#17211b]/12 bg-white px-4 py-2.5 text-sm font-bold transition hover:border-[#173d2c]/30 hover:bg-[#f9faf7]">Back to opportunity map</button>
+              <button type="button" onClick={() => setStage("results")} className="min-h-11 w-fit rounded-full border border-[#0a1930]/12 bg-white px-4 py-2.5 text-sm font-bold transition hover:border-[#06275c]/30 hover:bg-[#f7f9fc]">Back to opportunity map</button>
             </div>
 
             <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
               <div className="space-y-6">
-                <div className="overflow-hidden rounded-[2rem] border border-[#17211b]/10 bg-[#173d2c] text-white shadow-[0_24px_70px_rgba(23,61,44,0.16)]">
+                <div className="overflow-hidden rounded-[2rem] border border-[#0a1930]/10 bg-[#06275c] text-white shadow-[0_24px_70px_rgba(23,61,44,0.16)]">
                   <div className="p-6 sm:p-8">
                     <div className="flex flex-wrap items-center gap-2">
                       <DecisionPill decision={selectedOpportunity.decision} />
@@ -1638,23 +1467,23 @@ export default function OpportunityWorkbench() {
                         title: selectedOpportunity.title,
                         context: selectedOpportunity.sourceKind,
                       })}
-                      className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#173d2c] transition hover:bg-[#edf6ef] sm:mt-0"
+                      className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#06275c] transition hover:bg-[#edf6ef] sm:mt-0"
                     >
                       Review official instructions
                     </button>
                   </div>
                 </div>
 
-                <div className="rounded-[2rem] border border-[#17211b]/10 bg-white/85 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-8">
+                <div className="rounded-[2rem] border border-[#0a1930]/10 bg-white/85 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-8">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Prefill map</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#68778b]">Prefill map</p>
                       <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Known versus missing</h2>
-                      <p className="mt-2 text-sm leading-6 text-[#69746d]">Only founder-confirmed values can move into an application draft.</p>
+                      <p className="mt-2 text-sm leading-6 text-[#68778b]">Only founder-confirmed values can move into an application draft.</p>
                     </div>
                     <div className="shrink-0 sm:text-right">
-                      <p className="text-2xl font-semibold tracking-[-0.04em] text-[#315d43]">{applicationReadinessPercent}%</p>
-                      <p className="text-xs font-bold text-[#69746d]">prefill readiness</p>
+                      <p className="text-2xl font-semibold tracking-[-0.04em] text-[#084b9a]">{applicationReadinessPercent}%</p>
+                      <p className="text-xs font-bold text-[#68778b]">prefill readiness</p>
                     </div>
                   </div>
                   <div role="progressbar" aria-label="Application prefill readiness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={applicationReadinessPercent} className="mt-5 h-2 overflow-hidden rounded-full bg-[#e4e8e2]">
@@ -1664,7 +1493,7 @@ export default function OpportunityWorkbench() {
                     {applicationFieldStatus.map((field) => (
                       <div key={field.label} className={`grid gap-3 rounded-2xl border p-4 sm:grid-cols-[0.32fr_0.68fr] sm:items-start ${field.known ? "border-[#7eb08e]/25 bg-[#f3f8f4]" : "border-[#d9b45f]/30 bg-[#fffaf0]"}`}>
                         <div className="flex items-center justify-between gap-3 sm:block">
-                          <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#748077]">{field.label}</p>
+                          <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#718095]">{field.label}</p>
                           <span className={`mt-0 inline-flex rounded-full px-2 py-1 text-[10px] font-bold sm:mt-2 ${field.known ? "bg-[#dff2e4] text-[#205d3a]" : "bg-[#fff1ce] text-[#735511]"}`}>{field.known ? "Ready" : "Founder needed"}</span>
                         </div>
                         <div>
@@ -1678,26 +1507,26 @@ export default function OpportunityWorkbench() {
               </div>
 
               <aside className="space-y-5 xl:sticky xl:top-24">
-                <div className="rounded-[2rem] border border-[#17211b]/10 bg-white/90 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-7">
+                <div className="rounded-[2rem] border border-[#0a1930]/10 bg-white/90 p-5 shadow-[0_20px_65px_rgba(23,33,27,0.05)] sm:p-7">
                   <div className="flex items-end justify-between gap-4">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Persistent checklist</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#68778b]">Persistent checklist</p>
                       <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">{completedCount} of {INITIAL_CHECKLIST.length} complete</h2>
                     </div>
-                    <span aria-live="polite" className="text-sm font-bold text-[#315d43]">{Math.round((completedCount / INITIAL_CHECKLIST.length) * 100)}%</span>
+                    <span aria-live="polite" className="text-sm font-bold text-[#084b9a]">{Math.round((completedCount / INITIAL_CHECKLIST.length) * 100)}%</span>
                   </div>
                   <div role="progressbar" aria-label="Application checklist progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((completedCount / INITIAL_CHECKLIST.length) * 100)} className="mt-4 h-2 overflow-hidden rounded-full bg-[#e4e8e2]">
                     <div className="h-full rounded-full bg-[#4c9b67] transition-all" style={{ width: `${(completedCount / INITIAL_CHECKLIST.length) * 100}%` }} />
                   </div>
                   {nextChecklistItem && (
-                    <div className="mt-5 rounded-2xl bg-[#f2f4ef] p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#667169]">Next unfinished step</p>
+                    <div className="mt-5 rounded-2xl bg-[#f3f6fa] p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#68778b]">Next unfinished step</p>
                       <p className="mt-2 text-sm font-bold leading-5 text-[#253d2e]">{nextChecklistItem.label}</p>
                     </div>
                   )}
                   <div className="mt-5 grid gap-3">
                     {INITIAL_CHECKLIST.map((item) => (
-                      <label key={item.id} className={`flex min-h-16 cursor-pointer gap-3 rounded-2xl border p-4 transition ${activeChecklist[item.id] ? "border-[#77ae89]/40 bg-[#edf6ef]" : "border-[#17211b]/10 bg-white hover:border-[#77ae89]/45"}`}>
+                      <label key={item.id} className={`flex min-h-16 cursor-pointer gap-3 rounded-2xl border p-4 transition ${activeChecklist[item.id] ? "border-[#77ae89]/40 bg-[#edf6ef]" : "border-[#0a1930]/10 bg-white hover:border-[#77ae89]/45"}`}>
                         <input type="checkbox" checked={Boolean(activeChecklist[item.id])} onChange={(event) => {
                           if (!selectedOpportunityId) return;
                           setChecklistByOpportunity((current) => setChecklistItem(
@@ -1706,8 +1535,8 @@ export default function OpportunityWorkbench() {
                             item.id,
                             event.target.checked,
                           ).checklistByOpportunity);
-                        }} className="mt-0.5 h-5 w-5 shrink-0 accent-[#2f704a]" />
-                        <span><span className={`block text-sm font-bold leading-5 ${activeChecklist[item.id] ? "text-[#315d43] line-through" : ""}`}>{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#748077]">{item.detail}</span></span>
+                        }} className="mt-0.5 h-5 w-5 shrink-0 accent-[#0968d8]" />
+                        <span><span className={`block text-sm font-bold leading-5 ${activeChecklist[item.id] ? "text-[#084b9a] line-through" : ""}`}>{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#718095]">{item.detail}</span></span>
                       </label>
                     ))}
                   </div>
@@ -1730,7 +1559,7 @@ export default function OpportunityWorkbench() {
           />
         )}
 
-        <footer className="mt-16 flex flex-col gap-2 border-t border-[#17211b]/10 pt-5 text-xs text-[#68736c] sm:flex-row sm:items-center sm:justify-between">
+        <footer className="mt-16 flex flex-col gap-2 border-t border-[#0a1930]/10 pt-5 text-xs text-[#68736c] sm:flex-row sm:items-center sm:justify-between">
           <p>Research aid only. Verify eligibility and instructions on the official source.</p>
           <p>Current opportunities, program routes, and historical awards are labeled separately.</p>
         </footer>

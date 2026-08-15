@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Opportunity Map",
+  title: "Government Resource Finder",
   description:
-    "Turn a verified company profile into defensible government opportunities and application-ready next steps.",
+    "Find defensible government opportunities and clear next steps for your startup.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
