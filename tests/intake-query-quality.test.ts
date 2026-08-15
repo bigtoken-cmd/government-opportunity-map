@@ -64,6 +64,29 @@ test("controlled query terms do not synthesize exact-term evidence", () => {
   assert.ok(cyber.controlledConcepts.includes("cyber resilience"));
 });
 
+test("one broad manufacturing phrase does not synthesize independent domain groups", () => {
+  const controlled = normalizeConcepts("manufacturing innovation");
+  assert.deepEqual(controlled.missionAreas, []);
+  assert.deepEqual(controlled.technologyAndRd, []);
+  assert.deepEqual(controlled.customerUses, []);
+  assert.deepEqual(controlled.controlledConcepts, ["manufacturing innovation"]);
+
+  const issuerContext = normalizeConcepts(
+    "The USAF School of Aerospace Medicine supports advanced manufacturing systems research.",
+  );
+  assert.ok(issuerContext.missionAreas.includes("advanced manufacturing"));
+  assert.equal(issuerContext.missionAreas.includes("biomedical research"), false);
+
+  const humanPerformance = normalizeConcepts(
+    "The Human Effectiveness Directorate and School of Aerospace Medicine study continuing human enabling and restoring research.",
+  );
+  assert.ok(humanPerformance.missionAreas.includes("aerospace"));
+  assert.ok(humanPerformance.missionAreas.includes("biomedical research"));
+  assert.equal(humanPerformance.missionAreas.includes("advanced manufacturing"), false);
+  assert.equal(humanPerformance.technologyAndRd.includes("materials R&D"), false);
+  assert.equal(humanPerformance.customerUses.includes("aerospace manufacturing"), false);
+});
+
 test("direct concept terms do not receive synonym credit without synonym evidence", () => {
   const water = normalizeConcepts("municipal water");
   const manufacturing = normalizeConcepts("advanced manufacturing");

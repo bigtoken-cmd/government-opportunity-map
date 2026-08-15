@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeConcepts } from "../src/lib/concept-normalization";
+import { normalizeFounderProfile } from "../src/lib/intake/profile-normalization";
 import { matchOpportunity, rankOpportunities } from "../src/lib/opportunity-matching";
 import type { CompanyProfile, Opportunity } from "../src/lib/opportunity-types";
+import {
+  ADVERSARIAL_HOLDOUTS,
+  OFFICIAL_PROFILE_FIXTURES,
+  type OfficialProfileKey,
+} from "./fixtures/official-profile-fixtures";
+import {
+  AUDITED_MANUFACTURING_FALSE_POSITIVES,
+  PROTECTED_DOMAIN_POSITIVES,
+  type MatchingRegressionCase,
+} from "./fixtures/matching-regression-cases";
 
 const source = {
   sourceId: "official",
@@ -54,6 +65,25 @@ function opportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     source,
     ...overrides,
   };
+}
+
+function regressionOpportunity(input: MatchingRegressionCase): Opportunity {
+  const concepts = normalizeConcepts(`${input.title} ${input.scopeSummary}`);
+  return opportunity({
+    id: input.key,
+    title: input.title,
+    scopeSummary: input.scopeSummary,
+    titleConcepts: normalizeConcepts(input.title),
+    ...concepts,
+    eligibility: { applicantTypes: ["small business"] },
+    source: { ...source, sourceUrl: input.sourceUrl },
+  });
+}
+
+function officialCompany(key: OfficialProfileKey): CompanyProfile {
+  const fixture = OFFICIAL_PROFILE_FIXTURES.find((item) => item.key === key);
+  assert.ok(fixture);
+  return normalizeFounderProfile(fixture.profile);
 }
 
 test("unknown critical eligibility caps an otherwise strong match", () => {
@@ -117,6 +147,7 @@ test("an exact synopsis term can rescue a valid opportunity with a generic title
     { ...company, samRegistration: "yes" },
     opportunity({
       title: "Technical Assistance Challenge",
+      scopeSummary: "This notice supports municipal water research.",
       eligibility: { applicantTypes: ["small business"] },
     }),
   );
@@ -213,6 +244,130 @@ test("a cybersecurity company does not match an education-first title on cyber a
   );
   assert.equal(result.titleDomainMatch, false);
   assert.equal(result.decision, "Skip");
+});
+
+test("audited biomechanics and CHEERS scopes cannot become direct manufacturing routes", () => {
+  const manufacturingCompany = officialCompany("manufacturing");
+  for (const input of AUDITED_MANUFACTURING_FALSE_POSITIVES) {
+    const result = matchOpportunity(manufacturingCompany, regressionOpportunity(input));
+    assert.equal(result.decision, "Skip", input.key);
+    assert.equal(result.fitStatus, "No Fit", input.key);
+  }
+});
+
+test("an incidental specialized issuer mention cannot erase explicit manufacturing scope", () => {
+  const manufacturingCompany = officialCompany("manufacturing");
+  const title = "Advanced Manufacturing Systems";
+  const scopeSummary = "The USAF School of Aerospace Medicine is the issuing organization. Work must advance manufacturing systems and materials processing for aerospace suppliers.";
+  const candidate = regressionOpportunity({
+    key: "manufacturing-with-specialized-issuer",
+    opportunityNumber: "GENERAL",
+    title,
+    scopeSummary,
+    sourceUrl: source.sourceUrl,
+  });
+  const result = matchOpportunity(
+    manufacturingCompany,
+    {
+      ...candidate,
+      amount: { min: 2_000_000, max: 5_000_000, currency: "USD" },
+    },
+  );
+  assert.equal(result.titleDomainMatch, true);
+  assert.equal(result.scopeDomainMatch, true);
+  assert.equal(result.decision, "Pursue now");
+});
+
+test("one broad scope phrase cannot masquerade as independent manufacturing evidence", () => {
+  const manufacturingCompany = officialCompany("manufacturing");
+  const title = "Open Technical Research Areas";
+  const scopeSummary = "This open notice supports aerospace research and development across all technical areas.";
+  const result = matchOpportunity(
+    manufacturingCompany,
+    regressionOpportunity({
+      key: "broad-scope-only",
+      opportunityNumber: "GENERAL",
+      title,
+      scopeSummary,
+      sourceUrl: source.sourceUrl,
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.scopeDomainMatch, true);
+  assert.notEqual(result.decision, "Pursue now");
+  assert.notEqual(result.fitStatus, "Strong Fit");
+});
+
+test("independent non-generic title and scope anchors can still support a direct route", () => {
+  const manufacturingCompany = officialCompany("manufacturing");
+  const title = "Aerospace Systems Research";
+  const scopeSummary = "Lightweight component manufacturing-process development for aerospace suppliers.";
+  const anchoredOpportunity = regressionOpportunity({
+    key: "independent-manufacturing-anchors",
+    opportunityNumber: "GENERAL",
+    title,
+    scopeSummary,
+    sourceUrl: source.sourceUrl,
+  });
+  const result = matchOpportunity(
+    manufacturingCompany,
+    {
+      ...anchoredOpportunity,
+      amount: { min: 2_000_000, max: 5_000_000, currency: "USD" },
+    },
+  );
+  assert.equal(result.titleDomainMatch, true);
+  assert.equal(result.scopeDomainMatch, true);
+  assert.equal(result.decision, "Pursue now");
+});
+
+test("official manufacturing, water, and cyber positives preserve their intended routes", () => {
+  for (const input of PROTECTED_DOMAIN_POSITIVES) {
+    const candidate = regressionOpportunity(input);
+    const route = input.profileKey === "manufacturing"
+      ? {
+          decision: "Pursue now" as const,
+          fitStatus: "Strong Fit" as const,
+          eligibility: { applicantTypes: ["small business"] },
+        }
+      : input.profileKey === "water"
+        ? {
+            decision: "Partner-dependent" as const,
+            fitStatus: "Potential Fit" as const,
+            eligibility: {
+              applicantTypes: ["municipal government"],
+              partnerMaySatisfy: ["applicantType" as const],
+            },
+          }
+        : {
+            decision: "Verify first" as const,
+            fitStatus: "Potential Fit" as const,
+            eligibility: { unverifiedCriticalFields: ["exact notice applicant type"] },
+          };
+    const result = matchOpportunity(
+      officialCompany(input.profileKey),
+      { ...candidate, eligibility: route.eligibility },
+    );
+    assert.equal(result.decision, route.decision, input.key);
+    assert.equal(result.fitStatus, route.fitStatus, input.key);
+  }
+});
+
+test("consumer and service holdouts stay no-match on generic research language", () => {
+  const consumerFixture = OFFICIAL_PROFILE_FIXTURES.find((item) => item.key === "consumer");
+  assert.ok(consumerFixture);
+  const holdouts = [consumerFixture.profile, ...ADVERSARIAL_HOLDOUTS];
+  const genericOpportunity = regressionOpportunity({
+    key: "generic-commercialization",
+    opportunityNumber: "GENERAL",
+    title: "Small Business Research and Commercialization",
+    scopeSummary: "Broad support for research and development, technical innovation, and commercialization.",
+    sourceUrl: source.sourceUrl,
+  });
+  for (const profile of holdouts) {
+    const result = matchOpportunity(normalizeFounderProfile(profile), genericOpportunity);
+    assert.equal(result.decision, "Skip", profile.id);
+  }
 });
 
 test("deadline breaks ties without changing fit score", () => {

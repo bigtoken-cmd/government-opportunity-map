@@ -40,16 +40,32 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     "workflow automation",
     "administrative work",
   ]);
-  const hasBiomedicalResearch = hasAny(text, [
+  const hasClinicalResearch = hasAny(text, [
     "clinical trial",
     "clinical research",
-    "biomedical",
     "oncology",
     "cancer",
     "precision medicine",
     "medical imaging",
     "multimodal data",
   ]);
+  const hasHumanPerformanceResearch = text.includes("aerospace medicine")
+    && hasAny(text, [
+      "human effectiveness",
+      "human enabling",
+      "human enhancing",
+      "human restoring",
+      "human sustaining",
+    ]);
+  const hasSpecializedBiomedicalResearch = hasAny(text, [
+    "biomedical",
+    "biomechanics",
+    "mechanobiology",
+    "biological mechanics",
+    "living tissue",
+    "living system",
+  ]) || hasHumanPerformanceResearch;
+  const hasBiomedicalResearch = hasClinicalResearch || hasSpecializedBiomedicalResearch;
   if (hasHealthcareDelivery) {
     add(result.missionAreas, "healthcare delivery");
     add(result.controlledConcepts, "hospital innovation");
@@ -65,6 +81,8 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
   }
   if (hasBiomedicalResearch) {
     add(result.missionAreas, "biomedical research");
+  }
+  if (hasClinicalResearch) {
     add(result.controlledConcepts, "clinical research");
     if (hasAny(text, ["clinical", "trial", "validation"])) {
       add(result.technologyAndRd, "clinical validation");
@@ -79,26 +97,55 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     add(result.exactTerms, "artificial intelligence");
   }
 
-  const hasManufacturing = hasAny(text, [
-    "advanced manufacturing",
-    "aerospace",
-    "lightweight component",
-    "manufacturing innovation",
+  const hasAdvancedManufacturing = text.includes("advanced manufacturing");
+  const hasAerospace = text.includes("aerospace");
+  const hasLightweightComponents = text.includes("lightweight component");
+  const hasManufacturingInnovation = text.includes("manufacturing innovation");
+  const hasMaterialsResearch = hasAny(text, [
+    "materials r&d",
+    "materials research",
+    "materials processing",
+    "materials engineering",
+    "lightweight material",
   ]);
-  if (hasManufacturing) {
+  const hasManufacturingProcessResearch = hasAny(text, [
+    "manufacturing process",
+    "manufacturing-process",
+    "precision manufacturing",
+    "manufacturing technologies",
+    "manufacturing systems",
+    "manufacturing capabilities",
+    "manufacturing methods",
+    "manufacturing practices",
+    "manufacturing machines",
+    "manufacturing equipment",
+    "cybermanufacturing",
+    "nanomanufacturing",
+  ]);
+  const hasDirectManufacturingEvidence = hasAdvancedManufacturing
+    || hasManufacturingProcessResearch;
+  if (hasDirectManufacturingEvidence) {
     add(result.missionAreas, "advanced manufacturing");
+  }
+  if (hasAerospace) {
     add(result.missionAreas, "aerospace");
+  }
+  if (hasMaterialsResearch) {
     add(result.technologyAndRd, "materials R&D");
+  }
+  if (hasManufacturingProcessResearch) {
     add(result.technologyAndRd, "manufacturing process R&D");
+  }
+  if (hasAerospace && hasDirectManufacturingEvidence) {
     add(result.customerUses, "aerospace manufacturing");
   }
-  if (text.includes("advanced manufacturing")) {
+  if (hasAdvancedManufacturing) {
     add(result.exactTerms, "advanced manufacturing");
   }
-  if (text.includes("lightweight component")) {
+  if (hasLightweightComponents) {
     add(result.controlledConcepts, "lightweight components");
   }
-  if (hasAny(text, ["aerospace", "manufacturing innovation"])) {
+  if (hasManufacturingInnovation) {
     add(result.controlledConcepts, "manufacturing innovation");
   }
 
