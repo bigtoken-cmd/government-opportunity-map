@@ -21,6 +21,79 @@ test("manual evidence-only intake preserves unsupported company facts as unknown
   assert.equal(profile.samStatus, "Unknown");
 });
 
+test("evidence-only intake infers specific profile fields without inventing adjacent industries", () => {
+  const profile = createEvidenceOnlyFounderProfile(
+    "We provide expert human reasoning data for physical AI teams training robot policies with VLA models.",
+  );
+  assert.equal(profile.industry, "Physical AI and robotics");
+  assert.match(profile.technology, /physical ai/);
+  assert.match(profile.technology, /robot learning/);
+  assert.equal(profile.industry.includes("manufacturing"), false);
+});
+
+test("ambiguous phrases do not synthesize a physical-AI company", () => {
+  for (const evidence of [
+    "World models for macroeconomic forecasting.",
+    "Preference data from consumer surveys and an evaluation suite.",
+    "Metaphysical AI research for philosophy students.",
+    "Sports teams training for regional competitions.",
+    "Robotic process automation services for invoice entry.",
+    "A retailer selling robot toys and hobby kits.",
+  ]) {
+    const concepts = normalizeConcepts(evidence);
+    assert.equal(concepts.missionAreas.includes("robotics and autonomous systems"), false, evidence);
+    assert.equal(concepts.controlledConcepts.includes("robot learning"), false, evidence);
+    assert.equal(concepts.controlledConcepts.includes("AI training data"), false, evidence);
+    assert.equal(concepts.customerUses.includes("robotics developers"), false, evidence);
+  }
+});
+
+test("physical-AI evidence produces specific source queries rather than generic AI noise", () => {
+  const company = normalizeFounderProfile({
+    id: "physical-ai",
+    companyName: "Physical AI Company",
+    website: "",
+    description: "Expert human reasoning data for physical AI teams training robot policies with VLA models.",
+    industry: "Physical AI and robotics",
+    technology: "robotics training data",
+    location: "",
+    capitalNeed: "",
+    useOfFunds: "",
+    customers: "robotics developers",
+    researchActivities: "",
+    applicantType: "Unknown",
+    samStatus: "Unknown",
+    uei: "",
+  });
+  const terms = buildSearchQueries(company).map(({ term }) => term);
+  assert.ok(terms.includes("physical ai"));
+  assert.ok(terms.includes("robotics"));
+  assert.ok(terms.includes("robot learning"));
+  assert.ok(terms.includes("AI training data"));
+  assert.ok(terms.includes("robotics R&D"));
+  assert.equal(terms.includes("artificial intelligence"), false);
+});
+
+test("founder location aliases normalize deterministically for matching", () => {
+  const company = normalizeFounderProfile({
+    id: "slc-company",
+    companyName: "SLC Company",
+    website: "",
+    description: "Advanced manufacturing systems.",
+    industry: "Advanced manufacturing",
+    technology: "Manufacturing process R&D",
+    location: "slc",
+    capitalNeed: "",
+    useOfFunds: "",
+    customers: "",
+    researchActivities: "",
+    applicantType: "Unknown",
+    samStatus: "Unknown",
+    uei: "",
+  });
+  assert.deepEqual(company.operatingGeographies, ["Utah", "United States"]);
+});
+
 test("generic AI language does not create a source query by itself", async () => {
   const company = normalizeFounderProfile({
     id: "generic-ai",

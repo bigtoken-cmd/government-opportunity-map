@@ -44,8 +44,17 @@ const hasAllowedValue = (available: readonly string[], allowed: readonly string[
       );
     }),
   );
-const ratioScore = (matched: number, requested: number, weight: number) =>
-  requested === 0 ? 0 : Math.round((matched / requested) * weight);
+const ratioScore = (
+  matched: number,
+  opportunityConcepts: number,
+  companyConcepts: number,
+  weight: number,
+) => {
+  if (matched === 0 || opportunityConcepts === 0 || companyConcepts === 0) return 0;
+  const opportunityCoverage = Math.min(1, matched / opportunityConcepts);
+  const companyFocus = Math.min(1, matched / companyConcepts);
+  return Math.round(weight * ((opportunityCoverage * 0.85) + (companyFocus * 0.15)));
+};
 
 function checkBoolean(
   field: string,
@@ -117,32 +126,35 @@ export function scoreOpportunity(company: CompanyProfile, opportunity: Opportuni
   const useMatches = overlap(company.customerUses, opportunity.customerUses);
   const geographyMatches = overlap(company.operatingGeographies, opportunity.geographies);
   const amount = company.targetAmount && opportunity.amount
-    ? amountOverlap(company.targetAmount, opportunity.amount) ? 10 : 0
+    ? amountFitScore(company.targetAmount, opportunity.amount)
     : 0;
   const score = {
-    mission: ratioScore(missionMatches.length, opportunity.missionAreas.length, 25),
-    exactTerms: ratioScore(exactMatches.length, opportunity.exactTerms.length, 20),
-    controlledConcepts: ratioScore(conceptMatches.length, opportunity.controlledConcepts.length, 15),
-    technologyAndRd: ratioScore(technologyMatches.length, opportunity.technologyAndRd.length, 15),
-    customerUse: ratioScore(useMatches.length, opportunity.customerUses.length, 10),
+    mission: ratioScore(missionMatches.length, setOf(opportunity.missionAreas).size, setOf(company.missionAreas).size, 25),
+    exactTerms: ratioScore(exactMatches.length, setOf(opportunity.exactTerms).size, setOf(company.exactTerms).size, 20),
+    controlledConcepts: ratioScore(conceptMatches.length, setOf(opportunity.controlledConcepts).size, setOf(company.controlledConcepts).size, 15),
+    technologyAndRd: ratioScore(technologyMatches.length, setOf(opportunity.technologyAndRd).size, setOf(company.technologyAndRd).size, 15),
+    customerUse: ratioScore(useMatches.length, setOf(opportunity.customerUses).size, setOf(company.customerUses).size, 10),
     amount,
-    geography: ratioScore(geographyMatches.length, opportunity.geographies.length, 5),
+    geography: ratioScore(geographyMatches.length, setOf(opportunity.geographies).size, setOf(company.operatingGeographies).size, 5),
     total: 0,
   };
   score.total = score.mission + score.exactTerms + score.controlledConcepts + score.technologyAndRd + score.customerUse + score.amount + score.geography;
   return score;
 }
 
-function amountOverlap(
+function amountFitScore(
   company: NonNullable<CompanyProfile["targetAmount"]>,
   opportunity: NonNullable<Opportunity["amount"]>,
-): boolean {
-  if (company.currency !== opportunity.currency) return false;
+) {
+  if (company.currency !== opportunity.currency) return 0;
   const companyMin = company.min ?? 0;
   const companyMax = company.max ?? Number.POSITIVE_INFINITY;
   const opportunityMin = opportunity.min ?? 0;
   const opportunityMax = opportunity.max ?? Number.POSITIVE_INFINITY;
-  return companyMin <= opportunityMax && opportunityMin <= companyMax;
+  if (companyMin > opportunityMax || opportunityMin > companyMax) return 0;
+  if (companyMin >= opportunityMin && companyMax <= opportunityMax) return 10;
+  if (opportunityMin >= companyMin && opportunityMax <= companyMax) return 8;
+  return 6;
 }
 
 type ConceptGroupName = "mission" | "exact terms" | "controlled concepts" | "technology/R&D" | "customer/use";
@@ -272,7 +284,11 @@ export function matchOpportunity(company: CompanyProfile, opportunity: Opportuni
     pursueAnchorMatch,
   } = analyzeDomainEvidence(company, opportunity);
   const domainEvidenceMatch = titleDomainMatch || scopeExactTermMatch || scopeDomainMatch;
-  const fitStatus: FitStatus = hasHardFailure || !domainEvidenceMatch
+  const fitStatus: FitStatus = hasHardFailure
+    || !domainEvidenceMatch
+    || score.total < 20
+    || groups.length < 1
+    || (groups.length < 2 && !pursueAnchorMatch)
     ? "No Fit"
     : unknownCriticalFacts.length
       ? "Potential Fit"
@@ -292,15 +308,21 @@ export function matchOpportunity(company: CompanyProfile, opportunity: Opportuni
     ? "A hard eligibility requirement is not met."
     : !domainEvidenceMatch
       ? "The notice title and synopsis do not contain a non-generic domain match."
-    : partnerRequired
-      ? "A required capability can be supplied only through an eligible partner."
-      : unknownCriticalFacts.length
-        ? `Critical facts need verification: ${unknownCriticalFacts.join(", ")}.`
-        : groups.length < 2
-          ? "Fewer than two meaningful concept groups matched."
-          : !pursueAnchorMatch && score.total >= 70
-            ? "Pursue now requires a non-broad exact term or independent title and scope evidence."
-            : "Deterministic rubric and eligibility checks completed.";
+    : score.total < 20
+      ? "The domain is relevant, but the weighted evidence is too thin to retain."
+      : groups.length < 1
+        ? "No meaningful non-generic concept group matched."
+        : groups.length < 2 && !pursueAnchorMatch
+          ? "One broad concept group is not enough without a specific title or scope anchor."
+          : partnerRequired
+            ? "A required capability can be supplied only through an eligible partner."
+          : unknownCriticalFacts.length
+            ? `Critical facts need verification: ${unknownCriticalFacts.join(", ")}.`
+            : groups.length < 2
+              ? "One meaningful concept group matched, so this remains a cautious watch item."
+              : !pursueAnchorMatch && score.total >= 70
+                ? "Pursue now requires a non-broad exact term or independent title and scope evidence."
+                : "Deterministic rubric and eligibility checks completed.";
   return { companyId: company.id, opportunityId: opportunity.id, fitStatus, decision, score, eligibility, matchedConceptGroups: groups, unknownCriticalFacts, titleDomainMatch, scopeExactTermMatch, scopeDomainMatch, reason };
 }
 
@@ -328,18 +350,24 @@ function decide(input: {
   pursueAnchorMatch: boolean;
 }): DecisionLabel {
   if (input.hasHardFailure || !input.domainEvidenceMatch) return "Skip";
-  if (input.score < 35 || input.groups < 2) return "Skip";
+  if (input.score < 20 || input.groups < 1) return "Skip";
+  if (input.groups < 2 && !input.pursueAnchorMatch) return "Skip";
   if (input.partnerRequired) return "Partner-dependent";
   if (input.unknownCriticalFacts.length) return "Verify first";
   if (input.score >= 70 && input.pursueAnchorMatch) return "Pursue now";
   return "Watch";
 }
 
-/** Sorts by fit score, then deadline only as the tie-breaker, then stable opportunity ID. */
+/** Sorts by score, then evidence quality, then deadline and stable opportunity ID. */
 export function rankOpportunities(company: CompanyProfile, opportunities: readonly Opportunity[]): MatchResult[] {
   return opportunities
     .map((opportunity) => ({ result: matchOpportunity(company, opportunity), opportunity }))
-    .sort((a, b) => b.result.score.total - a.result.score.total || deadlineValue(a.opportunity.deadline) - deadlineValue(b.opportunity.deadline) || a.opportunity.id.localeCompare(b.opportunity.id))
+    .sort((a, b) =>
+      b.result.score.total - a.result.score.total
+      || a.result.unknownCriticalFacts.length - b.result.unknownCriticalFacts.length
+      || b.result.matchedConceptGroups.length - a.result.matchedConceptGroups.length
+      || deadlineValue(a.opportunity.deadline) - deadlineValue(b.opportunity.deadline)
+      || a.opportunity.id.localeCompare(b.opportunity.id))
     .map(({ result }) => result);
 }
 

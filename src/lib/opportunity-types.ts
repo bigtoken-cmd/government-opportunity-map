@@ -65,6 +65,11 @@ export interface SourcedFact<T> {
 export type RegistrationState = "yes" | "no" | "unknown";
 
 export interface FounderFacts {
+  location?: string;
+  industry?: string;
+  technology?: string;
+  customers?: string;
+  researchActivities?: string;
   yearFounded?: string;
   employees?: string;
   revenue?: string;

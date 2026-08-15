@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeConcepts } from "../src/lib/concept-normalization";
 import { normalizeFounderProfile } from "../src/lib/intake/profile-normalization";
-import { matchOpportunity, rankOpportunities } from "../src/lib/opportunity-matching";
+import {
+  matchOpportunity,
+  rankOpportunities,
+  scoreOpportunity,
+} from "../src/lib/opportunity-matching";
 import type { CompanyProfile, Opportunity } from "../src/lib/opportunity-types";
 import {
   ADVERSARIAL_HOLDOUTS,
@@ -368,6 +372,168 @@ test("consumer and service holdouts stay no-match on generic research language",
     const result = matchOpportunity(normalizeFounderProfile(profile), genericOpportunity);
     assert.equal(result.decision, "Skip", profile.id);
   }
+});
+
+test("one broad group stays out even when amount and geography inflate its score", () => {
+  const cases: Array<{ profile: CompanyProfile; candidate: Opportunity }> = [
+    {
+      profile: {
+        ...company,
+        missionAreas: ["advanced manufacturing"],
+        exactTerms: [],
+        controlledConcepts: [],
+        technologyAndRd: [],
+        customerUses: [],
+        samRegistration: "yes",
+      },
+      candidate: opportunity({
+        title: "Advanced Manufacturing Challenge",
+        titleConcepts: normalizeConcepts("Advanced Manufacturing Challenge"),
+        missionAreas: ["advanced manufacturing"],
+        exactTerms: [],
+        controlledConcepts: [],
+        technologyAndRd: [],
+        customerUses: [],
+        eligibility: {},
+      }),
+    },
+    {
+      profile: {
+        ...company,
+        missionAreas: [],
+        exactTerms: [],
+        controlledConcepts: ["manufacturing innovation"],
+        technologyAndRd: [],
+        customerUses: [],
+        samRegistration: "yes",
+      },
+      candidate: opportunity({
+        title: "Manufacturing Innovation Challenge",
+        titleConcepts: normalizeConcepts("Manufacturing Innovation Challenge"),
+        missionAreas: [],
+        exactTerms: [],
+        controlledConcepts: ["manufacturing innovation"],
+        technologyAndRd: [],
+        customerUses: [],
+        eligibility: {},
+      }),
+    },
+    {
+      profile: {
+        ...company,
+        missionAreas: [],
+        exactTerms: [],
+        controlledConcepts: [],
+        technologyAndRd: [],
+        customerUses: ["municipal utilities"],
+        samRegistration: "yes",
+      },
+      candidate: opportunity({
+        title: "Municipal Utilities Challenge",
+        titleConcepts: normalizeConcepts("Municipal Utilities Challenge"),
+        missionAreas: [],
+        exactTerms: [],
+        controlledConcepts: [],
+        technologyAndRd: [],
+        customerUses: ["municipal utilities"],
+        eligibility: {},
+      }),
+    },
+  ];
+  for (const { profile, candidate } of cases) {
+    const result = matchOpportunity(profile, candidate);
+    assert.equal(result.decision, "Skip", candidate.title);
+    assert.equal(result.fitStatus, "No Fit", candidate.title);
+  }
+});
+
+test("score is invariant to duplicate, case, and whitespace variants", () => {
+  const duplicateCompany: CompanyProfile = {
+    ...company,
+    missionAreas: ["water resilience", " WATER RESILIENCE "],
+    exactTerms: ["municipal water", "Municipal Water"],
+    controlledConcepts: ["water efficiency", " water efficiency "],
+    technologyAndRd: ["sensor R&D", "SENSOR R&D"],
+    operatingGeographies: ["United States", " united states "],
+  };
+  const duplicateOpportunity = opportunity({
+    missionAreas: ["water resilience", "Water Resilience"],
+    exactTerms: ["municipal water", " municipal water "],
+    controlledConcepts: ["water efficiency", "Water Efficiency"],
+    technologyAndRd: ["sensor R&D", "sensor r&d"],
+    geographies: ["United States", "UNITED STATES"],
+  });
+  assert.deepEqual(
+    scoreOpportunity(duplicateCompany, duplicateOpportunity),
+    scoreOpportunity(company, opportunity()),
+  );
+});
+
+test("score uses both notice coverage and company focus instead of coarse all-or-nothing buckets", () => {
+  const focused = matchOpportunity({ ...company, samRegistration: "yes" }, opportunity({ eligibility: {} }));
+  const broadProfile: CompanyProfile = {
+    ...company,
+    samRegistration: "yes",
+    missionAreas: ["water resilience", "aerospace", "cybersecurity", "healthcare delivery"],
+    exactTerms: ["municipal water", "robotics"],
+    controlledConcepts: [
+      "water efficiency",
+      "robot learning",
+      "AI training data",
+      "cyber resilience",
+      "hospital innovation",
+    ],
+    technologyAndRd: ["sensor R&D", "robotics R&D", "software R&D"],
+    operatingGeographies: ["United States", "Utah", "Colorado"],
+  };
+  const broad = matchOpportunity(broadProfile, opportunity({ eligibility: {} }));
+
+  assert.ok(focused.score.total > broad.score.total);
+  assert.ok(broad.score.total >= 0 && broad.score.total <= 100);
+  assert.notEqual(broad.score.total % 5, 0);
+});
+
+test("one specific anchored concept can survive as a cautious Watch result", () => {
+  const sparseCompany: CompanyProfile = {
+    ...company,
+    missionAreas: [],
+    exactTerms: ["municipal water"],
+    controlledConcepts: [],
+    technologyAndRd: [],
+    customerUses: [],
+    operatingGeographies: [],
+    targetAmount: undefined,
+    samRegistration: "yes",
+  };
+  const title = "Municipal water challenge";
+  const result = matchOpportunity(sparseCompany, opportunity({
+    title,
+    titleConcepts: normalizeConcepts(title),
+    missionAreas: [],
+    exactTerms: ["municipal water"],
+    controlledConcepts: [],
+    technologyAndRd: [],
+    customerUses: [],
+    geographies: [],
+    amount: undefined,
+    eligibility: {},
+  }));
+
+  assert.equal(result.score.total, 20);
+  assert.equal(result.decision, "Watch");
+  assert.equal(result.fitStatus, "Potential Fit");
+});
+
+test("equal scores prefer fewer unknown facts before deadline and ID", () => {
+  const unknown = opportunity({
+    id: "a-unknown",
+    deadline: "2026-09-01",
+    eligibility: { unverifiedCriticalFields: ["exact applicant type"] },
+  });
+  const known = opportunity({ id: "z-known", deadline: "2026-09-01", eligibility: {} });
+  const ranked = rankOpportunities({ ...company, samRegistration: "yes" }, [unknown, known]);
+  assert.deepEqual(ranked.map((result) => result.opportunityId), ["z-known", "a-unknown"]);
+  assert.equal(ranked[0].score.total, ranked[1].score.total);
 });
 
 test("deadline breaks ties without changing fit score", () => {

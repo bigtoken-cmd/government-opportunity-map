@@ -97,6 +97,73 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     add(result.exactTerms, "artificial intelligence");
   }
 
+  const hasExplicitPhysicalAi = /\bphysical[\s-]+ai\b/.test(text);
+  const hasRobotAnchor = /\brobot(?:s|ic|ics)?\b/.test(text);
+  const hasVisionLanguageAction = /\bvision-language-action\b|\bvla models?\b/.test(text);
+  const hasRoboticsContext = hasRobotAnchor && (
+    /\brobotics\b/.test(text)
+    || hasAny(text, [
+      "robot system",
+      "robot training",
+      "robot learning",
+      "robot policy",
+      "robot research",
+      "robot development",
+      "autonomous system",
+      "world model",
+      "behavior cloning",
+      "diffusion policy",
+    ])
+  );
+  const hasPhysicalAi = hasExplicitPhysicalAi || hasRoboticsContext || hasVisionLanguageAction;
+  const hasRoboticsRdEvidence = hasExplicitPhysicalAi
+    || hasVisionLanguageAction
+    || hasAny(text, [
+      "robot learning",
+      "robot training",
+      "robot policy",
+      "robot policies",
+      "robot research",
+      "robot development",
+      "robotics research",
+      "robotics r&d",
+      "autonomous system",
+    ]);
+  const hasRobotLearningEvidence = hasPhysicalAi && hasAny(text, [
+    "robot policy",
+    "robot policies",
+    "vision-language-action",
+    "vla model",
+    "behavior cloning",
+    "diffusion policy",
+    "diffusion policies",
+    "world model",
+  ]);
+  const hasRoboticsTrainingData = hasPhysicalAi && hasAny(text, [
+    "robotics training data",
+    "robot training data",
+    "human reasoning data",
+    "reasoning-rich data",
+    "preference data",
+    "golden trajectories",
+    "eval suite",
+    "evaluation suite",
+  ]);
+  if (hasPhysicalAi) add(result.missionAreas, "robotics and autonomous systems");
+  if (hasRoboticsRdEvidence || hasRobotLearningEvidence || hasRoboticsTrainingData) {
+    add(result.technologyAndRd, "robotics R&D");
+  }
+  if (hasExplicitPhysicalAi) add(result.exactTerms, "physical ai");
+  if (/\brobotics\b/.test(text)) add(result.exactTerms, "robotics");
+  if (hasRobotLearningEvidence) add(result.controlledConcepts, "robot learning");
+  if (hasRoboticsTrainingData) add(result.controlledConcepts, "AI training data");
+  if (
+    hasPhysicalAi
+    && hasAny(text, ["teams training", "robot policy", "robot policies", "robotics teams"])
+  ) {
+    add(result.customerUses, "robotics developers");
+  }
+
   const hasAdvancedManufacturing = text.includes("advanced manufacturing");
   const hasAerospace = text.includes("aerospace");
   const hasLightweightComponents = text.includes("lightweight component");
