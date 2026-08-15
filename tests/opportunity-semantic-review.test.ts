@@ -97,6 +97,16 @@ test("one valid batched review preserves strong matches and uses selected exact 
       assert.equal(body.model, "gpt-5.6-luna");
       assert.equal(body.store, false);
       assert.doesNotMatch(body.instructions, /decide eligibility/i);
+      const packet = JSON.parse(body.input[0].content[0].text) as {
+        companyEvidence: Array<{ id: string; text: string }>;
+      };
+      const companyEvidence = Object.fromEntries(
+        packet.companyEvidence.map(({ id, text }) => [id, text]),
+      );
+      assert.match(companyEvidence["company-technology"], /Monitoring software/);
+      assert.match(companyEvidence["company-customers"], /Public agencies/);
+      assert.match(companyEvidence["company-researchActivities"], /Product research and development/);
+      assert.equal(companyEvidence["company-location"], undefined);
       return completedResponse([review("strong")]);
     },
   });

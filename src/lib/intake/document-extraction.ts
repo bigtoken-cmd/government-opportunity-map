@@ -28,10 +28,14 @@ export interface ExtractedUpload {
 }
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_PDF_UPLOAD_BYTES = 5 * 1024 * 1024;
 const MAX_RELEVANT_XML_BYTES = 2 * 1024 * 1024;
 const MAX_RELEVANT_ARCHIVE_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_EXTRACTED_CHARACTERS = 8_000;
 const MAX_SLIDES = 100;
+const MAX_PDF_PAGES = 50;
+const MAX_PDF_TEXT_ITEMS = 20_000;
+const PDF_EXTRACTION_TIMEOUT_MS = 8_000;
 
 const XML_ENTITIES: Record<string, string> = {
   amp: "&",
@@ -66,6 +70,92 @@ function cleanExtractedText(value: string) {
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, MAX_EXTRACTED_CHARACTERS);
+}
+
+async function extractPdf(bytes: ArrayBuffer) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+  let destroyLoadingTask: (() => Promise<void>) | undefined;
+  let timeoutDestruction: Promise<void> | undefined;
+  const extraction = (async () => {
+    const { getDocument } = await import("unpdf/pdfjs");
+    if (cancelled) throw new Error("PDF extraction timed out.");
+    const documentOptions = {
+      data: new Uint8Array(bytes),
+      disableAutoFetch: true,
+      isEvalSupported: false,
+      maxImageSize: 1_000_000,
+      stopAtErrors: true,
+    };
+    const loadingTask = getDocument(documentOptions);
+    let destroyed = false;
+    destroyLoadingTask = async () => {
+      if (destroyed) return;
+      destroyed = true;
+      await loadingTask.destroy();
+    };
+    try {
+      const document = await loadingTask.promise;
+      if (document.numPages > MAX_PDF_PAGES) {
+        throw new Error(`PDF files over ${MAX_PDF_PAGES} pages require pasted text.`);
+      }
+      const fragments: string[] = [];
+      let characterCount = 0;
+      let textItemCount = 0;
+      for (
+        let pageNumber = 1;
+        pageNumber <= document.numPages && characterCount < MAX_EXTRACTED_CHARACTERS;
+        pageNumber += 1
+      ) {
+        const pdfPage = await document.getPage(pageNumber);
+        try {
+          const reader = pdfPage.streamTextContent().getReader();
+          try {
+            while (
+              characterCount < MAX_EXTRACTED_CHARACTERS
+              && textItemCount < MAX_PDF_TEXT_ITEMS
+            ) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              for (const item of value.items) {
+                if (!("str" in item) || !item.str.trim()) continue;
+                const separator = item.hasEOL ? "\n" : " ";
+                fragments.push(item.str, separator);
+                characterCount += item.str.length + separator.length;
+                textItemCount += 1;
+                if (
+                  characterCount >= MAX_EXTRACTED_CHARACTERS
+                  || textItemCount >= MAX_PDF_TEXT_ITEMS
+                ) break;
+              }
+            }
+          } finally {
+            await reader.cancel().catch(() => undefined);
+            reader.releaseLock();
+          }
+        } finally {
+          pdfPage.cleanup();
+        }
+        if (textItemCount >= MAX_PDF_TEXT_ITEMS) break;
+      }
+      return cleanExtractedText(fragments.join(""));
+    } finally {
+      await destroyLoadingTask();
+    }
+  })();
+  const timeoutFailure = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      cancelled = true;
+      timeoutDestruction = destroyLoadingTask?.().catch(() => undefined);
+      reject(new Error("PDF extraction timed out."));
+    }, PDF_EXTRACTION_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([extraction, timeoutFailure]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (timeoutDestruction) await timeoutDestruction;
+  }
 }
 
 function extractTaggedText(xml: string, tag: "w:t" | "a:t", paragraphTag: "w:p" | "a:p") {
@@ -289,7 +379,8 @@ export async function extractUploadedDocument(
       text: "",
     };
   }
-  if (file.size > MAX_UPLOAD_BYTES) {
+  const maximumUploadBytes = type === "pdf" ? MAX_PDF_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
+  if (file.size > maximumUploadBytes) {
     return {
       summary: summary(
         id,
@@ -297,7 +388,7 @@ export async function extractUploadedDocument(
         file,
         "needs-paste",
         "",
-        "This file is over the 10 MB limit. Paste its text instead.",
+        `This ${type.toUpperCase()} file is over the ${maximumUploadBytes / 1024 / 1024} MB limit. Paste its text instead.`,
       ),
       text: "",
     };
@@ -305,30 +396,58 @@ export async function extractUploadedDocument(
 
   const pastedText = cleanExtractedText(suppliedText);
   if (type === "pdf") {
-    return pastedText
-      ? {
-          summary: summary(
-            id,
-            type,
-            file,
-            "provided-text",
-            pastedText,
-            "PDF text was supplied by the client and was not verified against the uploaded PDF bytes.",
-            "user-supplied",
-          ),
-          text: pastedText,
-        }
-      : {
-          summary: summary(
-            id,
-            type,
-            file,
-            "needs-paste",
-            "",
-            "This PDF did not include readable extracted text. Paste its text instead.",
-          ),
-          text: "",
-        };
+    try {
+      const bytes = await file.arrayBuffer();
+      if (bytes.byteLength > MAX_PDF_UPLOAD_BYTES) {
+        throw new Error("The PDF is over the 5 MB limit.");
+      }
+      const text = await extractPdf(bytes);
+      if (!text) throw new Error("No embedded PDF text was found.");
+      return {
+        summary: summary(
+          id,
+          type,
+          file,
+          "extracted",
+          text,
+          "Embedded PDF text was extracted. Image-only pages may still require pasted text.",
+        ),
+        text,
+      };
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : "The PDF could not be read.";
+      const fallbackMessage = /over \d+ pages/i.test(failure)
+        ? failure
+        : /timed out/i.test(failure)
+          ? "PDF text extraction timed out. Paste its text instead."
+          : /no embedded pdf text/i.test(failure)
+            ? "No embedded PDF text was found. Image-only PDFs still need pasted text."
+            : "This PDF could not be read or may be password-protected. Paste its text instead.";
+      return pastedText
+        ? {
+            summary: summary(
+              id,
+              type,
+              file,
+              "provided-text",
+              pastedText,
+              "The PDF could not be read, so the supplied text was used and was not verified against the uploaded PDF bytes.",
+              "user-supplied",
+            ),
+            text: pastedText,
+          }
+        : {
+            summary: summary(
+              id,
+              type,
+              file,
+              "needs-paste",
+              "",
+              fallbackMessage,
+            ),
+            text: "",
+          };
+    }
   }
 
   try {

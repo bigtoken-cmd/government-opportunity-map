@@ -40,16 +40,32 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     "workflow automation",
     "administrative work",
   ]);
-  const hasBiomedicalResearch = hasAny(text, [
+  const hasClinicalResearch = hasAny(text, [
     "clinical trial",
     "clinical research",
-    "biomedical",
     "oncology",
     "cancer",
     "precision medicine",
     "medical imaging",
     "multimodal data",
   ]);
+  const hasHumanPerformanceResearch = text.includes("aerospace medicine")
+    && hasAny(text, [
+      "human effectiveness",
+      "human enabling",
+      "human enhancing",
+      "human restoring",
+      "human sustaining",
+    ]);
+  const hasSpecializedBiomedicalResearch = hasAny(text, [
+    "biomedical",
+    "biomechanics",
+    "mechanobiology",
+    "biological mechanics",
+    "living tissue",
+    "living system",
+  ]) || hasHumanPerformanceResearch;
+  const hasBiomedicalResearch = hasClinicalResearch || hasSpecializedBiomedicalResearch;
   if (hasHealthcareDelivery) {
     add(result.missionAreas, "healthcare delivery");
     add(result.controlledConcepts, "hospital innovation");
@@ -65,6 +81,8 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
   }
   if (hasBiomedicalResearch) {
     add(result.missionAreas, "biomedical research");
+  }
+  if (hasClinicalResearch) {
     add(result.controlledConcepts, "clinical research");
     if (hasAny(text, ["clinical", "trial", "validation"])) {
       add(result.technologyAndRd, "clinical validation");
@@ -79,26 +97,122 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     add(result.exactTerms, "artificial intelligence");
   }
 
-  const hasManufacturing = hasAny(text, [
-    "advanced manufacturing",
-    "aerospace",
-    "lightweight component",
-    "manufacturing innovation",
+  const hasExplicitPhysicalAi = /\bphysical[\s-]+ai\b/.test(text);
+  const hasRobotAnchor = /\brobot(?:s|ic|ics)?\b/.test(text);
+  const hasVisionLanguageAction = /\bvision-language-action\b|\bvla models?\b/.test(text);
+  const hasRoboticsContext = hasRobotAnchor && (
+    /\brobotics\b/.test(text)
+    || hasAny(text, [
+      "robot system",
+      "robot training",
+      "robot learning",
+      "robot policy",
+      "robot research",
+      "robot development",
+      "autonomous system",
+      "world model",
+      "behavior cloning",
+      "diffusion policy",
+    ])
+  );
+  const hasPhysicalAi = hasExplicitPhysicalAi || hasRoboticsContext || hasVisionLanguageAction;
+  const hasRoboticsRdEvidence = hasExplicitPhysicalAi
+    || hasVisionLanguageAction
+    || hasAny(text, [
+      "robot learning",
+      "robot training",
+      "robot policy",
+      "robot policies",
+      "robot research",
+      "robot development",
+      "robotics research",
+      "robotics r&d",
+      "autonomous system",
+    ]);
+  const hasRobotLearningEvidence = hasPhysicalAi && hasAny(text, [
+    "robot policy",
+    "robot policies",
+    "vision-language-action",
+    "vla model",
+    "behavior cloning",
+    "diffusion policy",
+    "diffusion policies",
+    "world model",
   ]);
-  if (hasManufacturing) {
+  const hasRoboticsTrainingData = hasPhysicalAi && hasAny(text, [
+    "robotics training data",
+    "robot training data",
+    "human reasoning data",
+    "reasoning-rich data",
+    "preference data",
+    "golden trajectories",
+    "eval suite",
+    "evaluation suite",
+  ]);
+  if (hasPhysicalAi) add(result.missionAreas, "robotics and autonomous systems");
+  if (hasRoboticsRdEvidence || hasRobotLearningEvidence || hasRoboticsTrainingData) {
+    add(result.technologyAndRd, "robotics R&D");
+  }
+  if (hasExplicitPhysicalAi) add(result.exactTerms, "physical ai");
+  if (/\brobotics\b/.test(text)) add(result.exactTerms, "robotics");
+  if (hasRobotLearningEvidence) add(result.controlledConcepts, "robot learning");
+  if (hasRoboticsTrainingData) add(result.controlledConcepts, "AI training data");
+  if (
+    hasPhysicalAi
+    && hasAny(text, ["teams training", "robot policy", "robot policies", "robotics teams"])
+  ) {
+    add(result.customerUses, "robotics developers");
+  }
+
+  const hasAdvancedManufacturing = text.includes("advanced manufacturing");
+  const hasAerospace = text.includes("aerospace");
+  const hasLightweightComponents = text.includes("lightweight component");
+  const hasManufacturingInnovation = text.includes("manufacturing innovation");
+  const hasMaterialsResearch = hasAny(text, [
+    "materials r&d",
+    "materials research",
+    "materials processing",
+    "materials engineering",
+    "lightweight material",
+  ]);
+  const hasManufacturingProcessResearch = hasAny(text, [
+    "manufacturing process",
+    "manufacturing-process",
+    "precision manufacturing",
+    "manufacturing technologies",
+    "manufacturing systems",
+    "manufacturing capabilities",
+    "manufacturing methods",
+    "manufacturing practices",
+    "manufacturing machines",
+    "manufacturing equipment",
+    "cybermanufacturing",
+    "nanomanufacturing",
+  ]);
+  const hasDirectManufacturingEvidence = hasAdvancedManufacturing
+    || hasManufacturingProcessResearch;
+  if (hasDirectManufacturingEvidence) {
     add(result.missionAreas, "advanced manufacturing");
+  }
+  if (hasAerospace) {
     add(result.missionAreas, "aerospace");
+  }
+  if (hasMaterialsResearch) {
     add(result.technologyAndRd, "materials R&D");
+  }
+  if (hasManufacturingProcessResearch) {
     add(result.technologyAndRd, "manufacturing process R&D");
+  }
+  if (hasAerospace && hasDirectManufacturingEvidence) {
     add(result.customerUses, "aerospace manufacturing");
   }
-  if (text.includes("advanced manufacturing")) {
+  if (hasAdvancedManufacturing) {
     add(result.exactTerms, "advanced manufacturing");
   }
-  if (text.includes("lightweight component")) {
+  if (hasLightweightComponents) {
     add(result.controlledConcepts, "lightweight components");
   }
-  if (hasAny(text, ["aerospace", "manufacturing innovation"])) {
+  if (hasManufacturingInnovation) {
     add(result.controlledConcepts, "manufacturing innovation");
   }
 
