@@ -132,9 +132,11 @@ export default function ResourceDashboard({
               : "The current records did not clear the relevance and eligibility gates for this profile."}
           </p>
         </div>
-        <button type="button" onClick={onEditProfile} className="secondary-button">
-          Edit profile
-        </button>
+        {tab !== "profile" && (
+          <button type="button" onClick={onEditProfile} className="secondary-button">
+            Edit profile
+          </button>
+        )}
       </div>
 
       <nav className="dashboard-tabs" aria-label="Resource finder">

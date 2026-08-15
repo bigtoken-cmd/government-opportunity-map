@@ -1149,7 +1149,7 @@ export default function OpportunityWorkbench() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-[#0a1930]/10 bg-white/80 p-5 shadow-[0_22px_70px_rgba(23,33,27,0.08)] sm:p-7">
+              <div className="rounded-[2rem] border border-[#0a1930]/10 bg-white/80 p-5 shadow-[0_22px_70px_rgba(23,33,27,0.08)] sm:p-6">
                 <form onSubmit={continueIntake}>
                   <label htmlFor="website-url" className="block text-sm font-bold text-[#36475f]">Company website</label>
                   <input
@@ -1199,7 +1199,7 @@ export default function OpportunityWorkbench() {
 
                   <details
                     ref={processingDetailsRef}
-                    className={`mt-5 rounded-xl border px-4 py-3 text-sm ${hasConsentError ? "border-[#c96a55]/45 bg-[#fff8f6]" : "border-[#0a1930]/10 bg-[#f8fafd]"}`}
+                    className={`mt-4 rounded-xl border px-4 py-3 text-sm ${hasConsentError ? "border-[#c96a55]/45 bg-[#fff8f6]" : "border-[#0a1930]/10 bg-[#f8fafd]"}`}
                   >
                     <summary className="cursor-pointer font-bold text-[#36475f]">How your information is processed</summary>
                     <p className="mt-2 text-xs leading-5 text-[#66758a]">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
@@ -1226,7 +1226,7 @@ export default function OpportunityWorkbench() {
                   <button
                     type="submit"
                     disabled={intakeStatus === "loading"}
-                    className="mt-5 w-full rounded-xl bg-[#06275c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#084b9a] disabled:cursor-wait disabled:opacity-65"
+                    className="mt-4 w-full rounded-xl bg-[#06275c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#084b9a] disabled:cursor-wait disabled:opacity-65"
                   >
                     {intakeStatus === "loading" ? "Building your profile…" : "Continue"}
                   </button>
