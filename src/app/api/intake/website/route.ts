@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 const MAX_HTML_BYTES = 1_000_000;
 const FETCH_TIMEOUT_MS = 7_000;
@@ -117,78 +117,82 @@ function inferYearFounded(text: string) {
   return match?.[1] ?? "";
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = (await request.json()) as { url?: unknown };
-    if (typeof body.url !== "string" || !body.url.trim()) {
-      return NextResponse.json({ error: "Enter a company website." }, { status: 400 });
+export function createWebsitePost(fetcher: typeof fetch = fetch) {
+  return async function POST(request: Request) {
+    try {
+      const body = (await request.json()) as { url?: unknown };
+      if (typeof body.url !== "string" || !body.url.trim()) {
+        return NextResponse.json({ error: "Enter a company website." }, { status: 400 });
+      }
+
+      const requestedUrl = validatePublicHttps(body.url.trim());
+      const response = await fetcher(requestedUrl, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "User-Agent": "OpportunityMap/0.1 founder-profile-intake",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        throw new Error(`The website returned ${response.status}.`);
+      }
+
+      validatePublicHttps(response.url || requestedUrl.toString());
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+        throw new Error("That address did not return a webpage.");
+      }
+
+      const declaredLength = Number(response.headers.get("content-length") ?? "0");
+      if (declaredLength > MAX_HTML_BYTES) {
+        throw new Error("That webpage is too large to review safely.");
+      }
+
+      const html = (await response.text()).slice(0, MAX_HTML_BYTES);
+      const title = cleanText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
+      const description = findMeta(html, ["description", "og:description", "twitter:description"]);
+      const pageText = stripHtml(html).slice(0, 24_000);
+      const companyName =
+        findMeta(html, ["og:site_name", "application-name"]) ||
+        title.split(/\s+[|·—-]\s+/)[0]?.trim() ||
+        requestedUrl.hostname.replace(/^www\./, "");
+      const concepts = inferConcepts(`${description} ${pageText}`);
+      const retrievedAt = new Date().toISOString();
+
+      return NextResponse.json({
+        profile: {
+          companyName,
+          website: response.url || requestedUrl.toString(),
+          description: description || pageText.slice(0, 420),
+          industry: concepts[0] ?? "",
+          technology: concepts.join(", "),
+          yearFounded: inferYearFounded(pageText),
+        },
+        evidence: [
+          ...(companyName
+            ? [{ field: "Company name", value: companyName, sourceUrl: response.url || requestedUrl.toString() }]
+            : []),
+          ...(description
+            ? [{ field: "Company description", value: description, sourceUrl: response.url || requestedUrl.toString() }]
+            : []),
+        ],
+        retrievedAt,
+        warning:
+          "Website facts are suggestions only. Confirm every field before matching; ownership, applicant type, registrations, and financial facts were not inferred.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The website could not be reviewed.";
+      return NextResponse.json(
+        {
+          error: message,
+          fallback: "Paste a plain-language company description instead.",
+        },
+        { status: 422 },
+      );
     }
-
-    const requestedUrl = validatePublicHttps(body.url.trim());
-    const response = await fetch(requestedUrl, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "User-Agent": "OpportunityMap/0.1 founder-profile-intake",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      throw new Error(`The website returned ${response.status}.`);
-    }
-
-    validatePublicHttps(response.url);
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
-      throw new Error("That address did not return a webpage.");
-    }
-
-    const declaredLength = Number(response.headers.get("content-length") ?? "0");
-    if (declaredLength > MAX_HTML_BYTES) {
-      throw new Error("That webpage is too large to review safely.");
-    }
-
-    const html = (await response.text()).slice(0, MAX_HTML_BYTES);
-    const title = cleanText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
-    const description = findMeta(html, ["description", "og:description", "twitter:description"]);
-    const pageText = stripHtml(html).slice(0, 24_000);
-    const companyName =
-      findMeta(html, ["og:site_name", "application-name"]) ||
-      title.split(/\s+[|·—-]\s+/)[0]?.trim() ||
-      requestedUrl.hostname.replace(/^www\./, "");
-    const concepts = inferConcepts(`${description} ${pageText}`);
-    const retrievedAt = new Date().toISOString();
-
-    return NextResponse.json({
-      profile: {
-        companyName,
-        website: response.url,
-        description: description || pageText.slice(0, 420),
-        industry: concepts[0] ?? "",
-        technology: concepts.join(", "),
-        yearFounded: inferYearFounded(pageText),
-      },
-      evidence: [
-        ...(companyName
-          ? [{ field: "Company name", value: companyName, sourceUrl: response.url }]
-          : []),
-        ...(description
-          ? [{ field: "Company description", value: description, sourceUrl: response.url }]
-          : []),
-      ],
-      retrievedAt,
-      warning:
-        "Website facts are suggestions only. Confirm every field before matching; ownership, applicant type, registrations, and financial facts were not inferred.",
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "The website could not be reviewed.";
-    return NextResponse.json(
-      {
-        error: message,
-        fallback: "Paste a plain-language company description instead.",
-      },
-      { status: 422 },
-    );
   }
 }
+
+export const POST = createWebsitePost();

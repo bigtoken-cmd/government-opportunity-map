@@ -59,6 +59,8 @@ export interface EligibilityRequirement {
   clearances?: readonly string[];
   certifications?: readonly string[];
   allowedGeographies?: readonly string[];
+  /** Critical notice-specific requirements that the source record did not expose. */
+  unverifiedCriticalFields?: readonly string[];
   /** A capable teammate can cure this blocker, but the company cannot proceed alone. */
   partnerMaySatisfy?: readonly (
     | "applicantType"
@@ -72,6 +74,7 @@ export interface EligibilityRequirement {
 export interface Opportunity {
   id: string;
   title: string;
+  opportunityNumber?: string;
   recordKind: RecordKind;
   source: Provenance;
   agency: string;
