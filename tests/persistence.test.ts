@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   GET as unconfiguredGet,
-  createWorkspaceHandlers,
 } from "../src/app/api/workspace/route";
 import {
   missingFounderContactQuestions,
   normalizeFounderContact,
 } from "../src/lib/application-workspace";
+import {
+  D1WorkspaceStore,
+  type WorkspaceD1PreparedStatement,
+  workspaceStoreFromCloudflareEnv,
+} from "../src/lib/persistence/d1-workspace-store";
+import { createWorkspaceHandlers } from "../src/lib/persistence/workspace-route-handlers";
 import {
   MemoryWorkspaceStore,
   type StoredWorkspaceRecord,
@@ -218,6 +223,27 @@ test("default workspace route stays unavailable until durable storage is configu
   assert.deepEqual(await response.json(), {
     error: "Durable workspace storage is not configured.",
   });
+});
+
+test("workspace route selects D1 only when the Cloudflare binding is available", () => {
+  const statement: WorkspaceD1PreparedStatement = {
+    bind: () => statement,
+    first: async () => null,
+    run: async () => ({ success: true, meta: { changes: 1 } }),
+  };
+  const database = {
+    prepare: () => statement,
+  };
+
+  assert.ok(
+    workspaceStoreFromCloudflareEnv({ WORKSPACE_DB: database })
+      instanceof D1WorkspaceStore,
+  );
+  assert.equal(workspaceStoreFromCloudflareEnv({}), null);
+  assert.equal(
+    workspaceStoreFromCloudflareEnv({ WORKSPACE_DB: { prepare: "invalid" } }),
+    null,
+  );
 });
 
 test("workspace persistence rejects prototype-polluting checklist keys", async () => {

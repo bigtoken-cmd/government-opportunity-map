@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { POST as search } from "../src/app/api/opportunities/search/route";
-import { createWebsitePost } from "../src/app/api/intake/website/route";
+import { createWebsitePost } from "../src/lib/intake/website-route-handler";
 import type { SourceResultStatus } from "../src/lib/sources/source-contracts";
 
 const SOURCE_STATUS_VOCABULARY: Record<SourceResultStatus, true> = {
