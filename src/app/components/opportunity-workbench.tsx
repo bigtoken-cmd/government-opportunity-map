@@ -37,6 +37,16 @@ type FitTier = "Likely Fit" | "Potential Fit" | "Adjacent";
 type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch" | "Skip";
 type SaveMode = "saving" | "device-only" | "durable";
 
+type ProfileFieldOrigin = {
+  origin: "extracted" | "unknown" | "founder-confirmed";
+  sourceId?: string;
+  sourceIds?: readonly string[];
+  sourceTextOrigin?: string;
+  sourceTextOrigins?: readonly string[];
+};
+
+type ProfileFieldOrigins = Partial<Record<keyof CompanyProfile, ProfileFieldOrigin>>;
+
 export type CompanyProfile = {
   companyName: string;
   founderName: string;
@@ -111,6 +121,7 @@ type WebsiteResponse = {
 type EvidenceResponse = WebsiteResponse;
 
 type EvidenceBundleResponse = EvidenceResponse & {
+  profileFieldOrigins?: Record<string, ProfileFieldOrigin>;
   sources?: Array<{
     id: string;
     displayName: string;
@@ -357,6 +368,7 @@ interface StoredWorkbenchSnapshot {
   discoveryOrigin?: "api";
   stage?: Stage;
   profile?: CompanyProfile;
+  profileFieldOrigins?: ProfileFieldOrigins;
   selectedOpportunityId?: string;
   workspace?: WorkspaceState;
   sourceEvidence?: string[];
@@ -364,8 +376,52 @@ interface StoredWorkbenchSnapshot {
   programs?: ProgramContextRecord[];
   historicalAwards?: HistoricalAwardRecord[];
   sourceSummaries?: SourceSearchSummary[];
+  searchError?: string;
   durableWorkspace?: WorkspaceClientCredentials;
   savedOpportunityIds?: string[];
+}
+
+function profileOriginLabel(
+  origin: ProfileFieldOrigin | undefined,
+  value: string,
+) {
+  if (!isSupportedProfileValue(value)) return "Still unknown";
+  if (origin?.origin === "founder-confirmed") return "Founder confirmed";
+  if (origin?.origin !== "extracted") return "Source not recorded";
+
+  const sourceIds = new Set([
+    ...(origin.sourceIds ?? []),
+    ...(origin.sourceId ? [origin.sourceId] : []),
+  ]);
+  if (sourceIds.has("manual")) return "From your text";
+  if ([...sourceIds].some((sourceId) => sourceId.startsWith("upload-"))) {
+    return "From uploaded file";
+  }
+  if (sourceIds.has("website")) return "From website";
+  return "From submitted evidence";
+}
+
+function normalizedProfileOrigins(
+  result: EvidenceBundleResponse,
+  profile: CompanyProfile,
+  manualProfile: CompanyProfile | null,
+  websiteProvided: boolean,
+): ProfileFieldOrigins {
+  const raw = result.profileFieldOrigins ?? {};
+  const origins: ProfileFieldOrigins = {};
+  for (const key of Object.keys(profile) as Array<keyof CompanyProfile>) {
+    const returned = raw[key];
+    if (returned?.origin === "extracted") {
+      origins[key] = returned;
+    } else if (manualProfile && isSupportedProfileValue(manualProfile[key])) {
+      origins[key] = { origin: "extracted", sourceId: "manual", sourceTextOrigin: "user-supplied" };
+    } else if (key === "website" && websiteProvided && isSupportedProfileValue(profile.website)) {
+      origins[key] = { origin: "founder-confirmed" };
+    } else {
+      origins[key] = returned ?? { origin: "unknown" };
+    }
+  }
+  return origins;
 }
 
 function profileFromText(text: string): CompanyProfile {
@@ -398,11 +454,16 @@ function clearStoredDurableCredentials() {
 }
 
 function StepRail({ stage }: { stage: Stage }) {
-  if (stage === "results" || stage === "workspace") return null;
-  const label = stage === "intake" ? "Add your information" : "Confirm your profile";
+  if (stage === "workspace") return null;
+  const step = stage === "intake" ? 1 : stage === "review" ? 2 : 3;
+  const label = stage === "intake"
+    ? "Add your information"
+    : stage === "review"
+      ? "Confirm your profile"
+      : "Review your resources";
   return (
     <div className="flex items-center gap-3 text-sm font-semibold text-[#68778b]" aria-label="Profile progress">
-      <span>Step 1 of 3</span>
+      <span>Step {step} of 3</span>
       <span aria-hidden="true" className="h-px w-8 bg-[#d7e0ed]" />
       <span className="text-[#06275c]">{label}</span>
     </div>
@@ -455,6 +516,7 @@ function Field({
   type = "text",
   autoComplete,
   status,
+  provenance,
   wide = false,
   multiline = false,
 }: {
@@ -466,6 +528,7 @@ function Field({
   type?: "text" | "email" | "url";
   autoComplete?: string;
   status?: "captured" | "missing";
+  provenance?: string;
   wide?: boolean;
   multiline?: boolean;
 }) {
@@ -480,7 +543,7 @@ function Field({
         <span>{label}</span>
         <span className="flex items-center gap-2">
           <span aria-hidden="true" className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${effectiveStatus === "captured" ? "bg-[#dff2e4] text-[#205d3a]" : "bg-[#fff1ce] text-[#735511]"}`}>
-            {effectiveStatus === "captured" ? "What we know" : "Still unknown"}
+            {effectiveStatus === "captured" ? provenance ?? "Source not recorded" : "Still unknown"}
           </span>
           <button
             type="button"
@@ -538,7 +601,7 @@ function SearchExperience() {
         <span className="thinking-orb-ring thinking-orb-ring-one" />
         <span className="thinking-orb-ring thinking-orb-ring-two" />
       </div>
-      <h1>Finding your strongest routes</h1>
+      <h1 data-stage-heading tabIndex={-1}>Finding your strongest routes</h1>
       <p>Searching current opportunities and checking fit…</p>
     </section>
   );
@@ -572,10 +635,10 @@ function ExternalSourceConfirmation({
         tabIndex={-1}
         className="m-auto w-full max-w-2xl rounded-[2rem] border border-white/20 bg-[#f7f9fc] p-5 text-[#0a1930] shadow-[0_30px_100px_rgba(8,20,12,0.35)] sm:p-8"
       >
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#084b9a]">Before you leave Opportunity Map</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#084b9a]">Before you leave Government Resource Finder</p>
         <h2 id="external-source-heading" className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Confirm this is still the right route.</h2>
         <p id="external-source-description" className="mt-3 text-sm leading-6 text-[#5f6f84]">
-          You are about to open <strong>{prompt.title}</strong> on an external official site. Opportunity Map currently labels this record as <strong>{prompt.context}</strong>.
+          You are about to open <strong>{prompt.title}</strong> on an external official site. Government Resource Finder currently labels this record as <strong>{prompt.context}</strong>.
         </p>
 
         <ol className="mt-6 grid gap-3">
@@ -620,6 +683,7 @@ function ExternalSourceConfirmation({
 export default function OpportunityWorkbench() {
   const [stage, setStage] = useState<Stage>("intake");
   const [profile, setProfile] = useState<CompanyProfile>(EMPTY_PROFILE);
+  const [profileFieldOrigins, setProfileFieldOrigins] = useState<ProfileFieldOrigins>({});
   const [externalProcessingConsent, setExternalProcessingConsent] =
     useState(false);
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -640,6 +704,7 @@ export default function OpportunityWorkbench() {
   const [historicalAwards, setHistoricalAwards] = useState<HistoricalAwardRecord[]>([]);
   const [sourceSummaries, setSourceSummaries] = useState<SourceSearchSummary[]>([]);
   const [searchStatus, setSearchStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [searchError, setSearchError] = useState("");
   const [reviewMode, setReviewMode] = useState<"questions" | "confirm">("confirm");
   const [reviewQuestionKeys, setReviewQuestionKeys] = useState<Array<keyof CompanyProfile>>([]);
   const [reviewQuestionIndex, setReviewQuestionIndex] = useState(0);
@@ -655,6 +720,7 @@ export default function OpportunityWorkbench() {
   const durableGenerationRef = useRef(0);
   const lastSyncedPayloadRef = useRef("");
   const processingDetailsRef = useRef<HTMLDetailsElement>(null);
+  const stageFocusKeyRef = useRef("");
 
   useEffect(() => {
     let active = true;
@@ -667,6 +733,7 @@ export default function OpportunityWorkbench() {
           const hasCurrentApiDiscovery = parsed.version === STORAGE_VERSION
             && parsed.discoveryOrigin === "api";
           if (parsed.profile) setProfile({ ...EMPTY_PROFILE, ...parsed.profile });
+          if (parsed.profileFieldOrigins) setProfileFieldOrigins(parsed.profileFieldOrigins);
           if (parsed.stage) {
             const requiresDiscovery = parsed.stage === "results" || parsed.stage === "workspace";
             setStage(requiresDiscovery && !hasCurrentApiDiscovery ? "review" : parsed.stage);
@@ -685,6 +752,10 @@ export default function OpportunityWorkbench() {
             }
             if (parsed.sourceSummaries) {
               setSourceSummaries(parsed.sourceSummaries);
+            }
+            if (parsed.searchError) {
+              setSearchError(parsed.searchError);
+              setSearchStatus("error");
             }
           }
           if (parsed.savedOpportunityIds) {
@@ -715,6 +786,12 @@ export default function OpportunityWorkbench() {
               founderName: remote.founderContact.name,
               founderRole: remote.founderContact.role,
               founderEmail: remote.founderContact.email,
+            }));
+            setProfileFieldOrigins((current) => ({
+              ...current,
+              ...(remote.founderContact.name ? { founderName: { origin: "founder-confirmed" as const } } : {}),
+              ...(remote.founderContact.role ? { founderRole: { origin: "founder-confirmed" as const } } : {}),
+              ...(remote.founderContact.email ? { founderEmail: { origin: "founder-confirmed" as const } } : {}),
             }));
             lastSyncedPayloadRef.current = JSON.stringify({
               workspace: remote.workspace,
@@ -755,6 +832,7 @@ export default function OpportunityWorkbench() {
         discoveryOrigin: "api",
         stage,
         profile,
+        profileFieldOrigins,
         workspace: {
           version: 2,
           selectedOpportunityId,
@@ -765,6 +843,7 @@ export default function OpportunityWorkbench() {
         programs,
         historicalAwards,
         sourceSummaries,
+        searchError: searchStatus === "error" ? searchError : undefined,
         savedOpportunityIds,
         durableWorkspace: durableCredentials ?? undefined,
       }),
@@ -776,13 +855,28 @@ export default function OpportunityWorkbench() {
     hydrated,
     matches,
     profile,
+    profileFieldOrigins,
     programs,
     selectedOpportunityId,
     sourceEvidence,
     sourceSummaries,
+    searchError,
+    searchStatus,
     savedOpportunityIds,
     stage,
   ]);
+
+  const stageFocusKey = `${stage}:${reviewMode}:${reviewQuestionIndex}:${searchStatus}`;
+  useEffect(() => {
+    if (!hydrated || stageFocusKeyRef.current === stageFocusKey) return;
+    stageFocusKeyRef.current = stageFocusKey;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.querySelector<HTMLElement>("[data-stage-heading]")
+        ?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [hydrated, stageFocusKey]);
 
   useEffect(() => {
     if (!hydrated || durableUnavailable) return;
@@ -911,10 +1005,15 @@ export default function OpportunityWorkbench() {
     setStage("review");
   }
 
+  function fieldProvenance(key: keyof CompanyProfile) {
+    return profileOriginLabel(profileFieldOrigins[key], String(profile[key] ?? ""));
+  }
+
   function resetWorkspace() {
     window.localStorage.removeItem(STORAGE_KEY);
     setStage("intake");
     setProfile(EMPTY_PROFILE);
+    setProfileFieldOrigins({});
     setExternalProcessingConsent(false);
     setWebsiteUrl("");
     setManualText("");
@@ -930,6 +1029,7 @@ export default function OpportunityWorkbench() {
     setHistoricalAwards([]);
     setSourceSummaries([]);
     setSearchStatus("idle");
+    setSearchError("");
     setReviewMode("confirm");
     setReviewQuestionKeys([]);
     setReviewQuestionIndex(0);
@@ -978,9 +1078,10 @@ export default function OpportunityWorkbench() {
         throw new Error(result.error ?? result.fallback ?? "Evidence review failed.");
       }
       const extractedProfile = pickSupportedEvidenceProfile(result.profile);
+      const manualProfile = hasEvidence ? profileFromText(manualText.trim()) : null;
       const nextProfile: CompanyProfile = {
         ...EMPTY_PROFILE,
-        ...(hasEvidence ? profileFromText(manualText.trim()) : {}),
+        ...(manualProfile ?? {}),
         ...extractedProfile,
         website: websiteUrl.trim(),
       };
@@ -1004,6 +1105,12 @@ export default function OpportunityWorkbench() {
         .filter(({ key }) => !isSupportedProfileValue(confirmedCandidate[key]))
         .map(({ key }) => key);
       setProfile(confirmedCandidate);
+      setProfileFieldOrigins(normalizedProfileOrigins(
+        result,
+        confirmedCandidate,
+        manualProfile,
+        hasWebsite,
+      ));
       setReviewQuestionKeys(missingQuestionKeys);
       setReviewQuestionIndex(0);
       setReviewMode(missingQuestionKeys.length ? "questions" : "confirm");
@@ -1052,12 +1159,20 @@ export default function OpportunityWorkbench() {
 
   function updateProfile(key: keyof CompanyProfile, value: string) {
     setProfile((current) => ({ ...current, [key]: value }));
+    setProfileFieldOrigins((current) => ({
+      ...current,
+      [key]: isSupportedProfileValue(value)
+        ? { origin: "founder-confirmed" }
+        : { origin: "unknown" },
+    }));
   }
 
   async function buildMap() {
     const confirmedProfile = profile;
     setProfile(confirmedProfile);
     setSearchStatus("loading");
+    setSearchError("");
+    setStage("review");
     setSelectedOpportunityId("");
     setGrantsHealth({ status: "checking", message: "Searching Grants.gov for current opportunities…" });
     setSpendingHealth({ status: "checking", message: "Searching historical award sources…" });
@@ -1101,6 +1216,11 @@ export default function OpportunityWorkbench() {
       });
       setSpendingHealth({ status: "unavailable", message: "" });
       setSearchStatus("error");
+      setSearchError(
+        error instanceof Error && error.message.trim()
+          ? error.message.trim().slice(0, 280)
+          : "Government sources could not be searched. Please try again.",
+      );
       setStage("results");
     }
   }
@@ -1120,7 +1240,7 @@ export default function OpportunityWorkbench() {
           <section className="intake-hero pt-10 lg:pt-14">
             <div className="intake-hero-grid grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
               <div className="intake-hero-copy lg:sticky lg:top-28">
-                <h1 className="max-w-xl text-balance text-4xl font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">
+                <h1 data-stage-heading tabIndex={-1} className="max-w-xl text-balance text-4xl font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">
                   Find the right government resources for your startup.
                 </h1>
                 <div className="mt-6">
@@ -1228,7 +1348,7 @@ export default function OpportunityWorkbench() {
           <section className="approval-flow mx-auto max-w-2xl pt-12 sm:pt-16">
             <div className="approval-flow-heading">
               <p>{reviewQuestionIndex + 1} of {reviewQuestionKeys.length}</p>
-              <h1>{currentReviewQuestion.label}</h1>
+              <h1 data-stage-heading tabIndex={-1}>{currentReviewQuestion.label}</h1>
               <p>{currentReviewQuestion.why}</p>
             </div>
             <div className="approval-question-card">
@@ -1240,6 +1360,7 @@ export default function OpportunityWorkbench() {
                   placeholder={currentReviewQuestion.placeholder}
                   multiline={currentReviewQuestion.multiline}
                   status={isSupportedProfileValue(profile[currentReviewQuestion.key]) ? "captured" : "missing"}
+                  provenance={fieldProvenance(currentReviewQuestion.key)}
                 />
               </div>
               <div className="approval-question-footer">
@@ -1271,7 +1392,7 @@ export default function OpportunityWorkbench() {
           <section className="pt-10">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h1 className="text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">Confirm your profile.</h1>
+                <h1 data-stage-heading tabIndex={-1} className="text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">Confirm your profile.</h1>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6f84]">Unknown fields stay unknown. They can lower confidence, but the system will not guess.</p>
               </div>
               <button type="button" onClick={() => setStage("intake")} className="w-fit rounded-full border border-[#0a1930]/12 bg-white px-4 py-2.5 text-sm font-semibold">
@@ -1299,6 +1420,7 @@ export default function OpportunityWorkbench() {
                       placeholder="Full name"
                       autoComplete="name"
                       status={isSupportedProfileValue(profile.founderName) ? "captured" : "missing"}
+                      provenance={fieldProvenance("founderName")}
                     />
                     <Field
                       label="Role"
@@ -1307,6 +1429,7 @@ export default function OpportunityWorkbench() {
                       placeholder="CEO, founder, grants lead…"
                       autoComplete="organization-title"
                       status={isSupportedProfileValue(profile.founderRole) ? "captured" : "missing"}
+                      provenance={fieldProvenance("founderRole")}
                     />
                     <Field
                       label="Email"
@@ -1316,6 +1439,7 @@ export default function OpportunityWorkbench() {
                       type="email"
                       autoComplete="email"
                       status={isSupportedProfileField("founderEmail", profile.founderEmail) ? "captured" : "missing"}
+                      provenance={fieldProvenance("founderEmail")}
                     />
                   </div>
                 </section>
@@ -1326,23 +1450,23 @@ export default function OpportunityWorkbench() {
                     <p className="mt-2 text-sm leading-6 text-[#5f6f84]">Use the edit icon beside any value to change only that field.</p>
                   </div>
                   <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="Company name" value={profile.companyName} onChange={(value) => updateProfile("companyName", value)} placeholder="Legal or public name" autoComplete="organization" />
-                    <Field label="Website" value={profile.website} onChange={(value) => updateProfile("website", value)} placeholder="https://…" type="url" autoComplete="url" />
-                    <Field wide multiline label="What the company does" value={profile.description} onChange={(value) => updateProfile("description", value)} />
-                    <Field label="Industry" value={profile.industry} onChange={(value) => updateProfile("industry", value)} />
-                    <Field label="Technology" value={profile.technology} onChange={(value) => updateProfile("technology", value)} />
-                    <Field label="Location" value={profile.location} onChange={(value) => updateProfile("location", value)} placeholder="City, state, country" autoComplete="address-level2" />
-                    <Field label="Employees" value={profile.employees} onChange={(value) => updateProfile("employees", value)} />
-                    <Field label="Revenue" value={profile.revenue} onChange={(value) => updateProfile("revenue", value)} />
-                    <Field label="Capital raised" value={profile.capitalRaised} onChange={(value) => updateProfile("capitalRaised", value)} />
-                    <Field label="Funding need" value={profile.capitalNeed} onChange={(value) => updateProfile("capitalNeed", value)} />
-                    <Field wide multiline label="Use of funds" value={profile.useOfFunds} onChange={(value) => updateProfile("useOfFunds", value)} />
-                    <Field label="Target customers" value={profile.customers} onChange={(value) => updateProfile("customers", value)} />
-                    <Field label="R&D activities" value={profile.researchActivities} onChange={(value) => updateProfile("researchActivities", value)} />
-                    <Field label="Applicant type" value={profile.applicantType} onChange={(value) => updateProfile("applicantType", value)} />
-                    <Field label="Ownership" value={profile.ownership} onChange={(value) => updateProfile("ownership", value)} placeholder="Unknown is acceptable" />
-                    <Field label="SAM.gov status" value={profile.samStatus} onChange={(value) => updateProfile("samStatus", value)} />
-                    <Field label="UEI" value={profile.uei} onChange={(value) => updateProfile("uei", value)} placeholder="Leave blank if unknown" />
+                    <Field label="Company name" value={profile.companyName} onChange={(value) => updateProfile("companyName", value)} provenance={fieldProvenance("companyName")} placeholder="Legal or public name" autoComplete="organization" />
+                    <Field label="Website" value={profile.website} onChange={(value) => updateProfile("website", value)} provenance={fieldProvenance("website")} placeholder="https://…" type="url" autoComplete="url" />
+                    <Field wide multiline label="What the company does" value={profile.description} onChange={(value) => updateProfile("description", value)} provenance={fieldProvenance("description")} />
+                    <Field label="Industry" value={profile.industry} onChange={(value) => updateProfile("industry", value)} provenance={fieldProvenance("industry")} />
+                    <Field label="Technology" value={profile.technology} onChange={(value) => updateProfile("technology", value)} provenance={fieldProvenance("technology")} />
+                    <Field label="Location" value={profile.location} onChange={(value) => updateProfile("location", value)} provenance={fieldProvenance("location")} placeholder="City, state, country" autoComplete="address-level2" />
+                    <Field label="Employees" value={profile.employees} onChange={(value) => updateProfile("employees", value)} provenance={fieldProvenance("employees")} />
+                    <Field label="Revenue" value={profile.revenue} onChange={(value) => updateProfile("revenue", value)} provenance={fieldProvenance("revenue")} />
+                    <Field label="Capital raised" value={profile.capitalRaised} onChange={(value) => updateProfile("capitalRaised", value)} provenance={fieldProvenance("capitalRaised")} />
+                    <Field label="Funding need" value={profile.capitalNeed} onChange={(value) => updateProfile("capitalNeed", value)} provenance={fieldProvenance("capitalNeed")} />
+                    <Field wide multiline label="Use of funds" value={profile.useOfFunds} onChange={(value) => updateProfile("useOfFunds", value)} provenance={fieldProvenance("useOfFunds")} />
+                    <Field label="Target customers" value={profile.customers} onChange={(value) => updateProfile("customers", value)} provenance={fieldProvenance("customers")} />
+                    <Field label="R&D activities" value={profile.researchActivities} onChange={(value) => updateProfile("researchActivities", value)} provenance={fieldProvenance("researchActivities")} />
+                    <Field label="Applicant type" value={profile.applicantType} onChange={(value) => updateProfile("applicantType", value)} provenance={fieldProvenance("applicantType")} />
+                    <Field label="Ownership" value={profile.ownership} onChange={(value) => updateProfile("ownership", value)} provenance={fieldProvenance("ownership")} placeholder="Unknown is acceptable" />
+                    <Field label="SAM.gov status" value={profile.samStatus} onChange={(value) => updateProfile("samStatus", value)} provenance={fieldProvenance("samStatus")} />
+                    <Field label="UEI" value={profile.uei} onChange={(value) => updateProfile("uei", value)} provenance={fieldProvenance("uei")} placeholder="Leave blank if unknown" />
                   </div>
                 </section>
               </div>
@@ -1396,6 +1520,7 @@ export default function OpportunityWorkbench() {
             savedOpportunityIds={savedOpportunityIds}
             checklistByOpportunity={checklistByOpportunity}
             sourceMessage={effectiveGrantsHealth.message || "Official source status is available inside each expanded result."}
+            searchError={searchStatus === "error" ? searchError : ""}
             onSavedChange={setSavedOpportunityIds}
             onChecklistChange={(opportunityId, itemId, checked) => {
               setSelectedOpportunityId(opportunityId);
@@ -1407,6 +1532,7 @@ export default function OpportunityWorkbench() {
               ).checklistByOpportunity);
             }}
             onEditProfile={openProfileReview}
+            onRetry={() => void buildMap()}
             onOpenWorkspace={openWorkspace}
             onOpenSource={(opportunity) => setExternalSourcePrompt({
               url: opportunity.sourceUrl,
@@ -1421,7 +1547,7 @@ export default function OpportunityWorkbench() {
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#0968d8]">Application workspace</p>
-                <h1 className="mt-3 max-w-4xl text-balance text-[2.5rem] font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">Move forward without inventing an answer.</h1>
+                <h1 data-stage-heading tabIndex={-1} className="mt-3 max-w-4xl text-balance text-[2.5rem] font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">Move forward without inventing an answer.</h1>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6f84]">Known facts are organized below and unsupported answers stay visibly blank. Nothing here submits to a government system.</p>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <span className="rounded-full bg-[#edf5ef] px-3 py-1.5 text-xs font-bold text-[#084b9a]">{knownApplicationFieldCount} of {applicationFieldStatus.length} prefill fields ready</span>
@@ -1435,7 +1561,7 @@ export default function OpportunityWorkbench() {
                   </span>
                 </div>
               </div>
-              <button type="button" onClick={() => setStage("results")} className="min-h-11 w-fit rounded-full border border-[#0a1930]/12 bg-white px-4 py-2.5 text-sm font-bold transition hover:border-[#06275c]/30 hover:bg-[#f7f9fc]">Back to opportunity map</button>
+              <button type="button" onClick={() => setStage("results")} className="min-h-11 w-fit rounded-full border border-[#0a1930]/12 bg-white px-4 py-2.5 text-sm font-bold transition hover:border-[#06275c]/30 hover:bg-[#f7f9fc]">Back to opportunities</button>
             </div>
 
             <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
