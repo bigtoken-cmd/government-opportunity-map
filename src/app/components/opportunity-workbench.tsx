@@ -1,22 +1,25 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { rankOpportunities } from "@/lib/opportunity-matching";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { createEvidenceOnlyFounderProfile } from "@/lib/intake/profile-normalization";
+import type { DiscoveryRecommendation } from "@/lib/opportunity-discovery";
 import type {
-  CompanyProfile as MatchingCompanyProfile,
-  MatchResult,
-  Opportunity as MatchingOpportunity,
-  RegistrationState,
-} from "@/lib/opportunity-types";
+  GovernmentSourceSearchResult,
+  SourceSearchSummary,
+} from "@/lib/opportunity-search";
+import type { HistoricalAwardRecord } from "@/lib/sources/source-contracts";
+import {
+  hydrateWorkspace,
+  setChecklistItem,
+  type WorkspaceState,
+} from "@/lib/workspace-state";
 
 type Stage = "intake" | "review" | "results" | "workspace";
 type IntakeMethod = "website" | "document" | "manual";
-type DemoKey = "healthcare" | "manufacturing" | "water" | "cyber" | "consumer";
 type FitTier = "Likely Fit" | "Potential Fit" | "Adjacent";
 type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch" | "Skip";
 
 type CompanyProfile = {
-  demoKey: DemoKey | "custom";
   companyName: string;
   website: string;
   description: string;
@@ -38,7 +41,6 @@ type CompanyProfile = {
 
 type OpportunityCard = {
   id: string;
-  demoKeys: DemoKey[];
   title: string;
   agency: string;
   opportunityNumber: string;
@@ -82,24 +84,7 @@ type SourceHealth = {
   message: string;
 };
 
-type GrantsSourceResponse = {
-  sourceStatus?: SourceHealth["status"];
-  warning?: string | null;
-  records?: Array<{
-    opportunityNumber?: string;
-    status?: string;
-    closeDate?: string;
-  }>;
-};
-
-type SpendingSourceResponse = {
-  sourceStatus?: SourceHealth["status"];
-  warning?: string | null;
-  records?: Array<{ awardId?: string }>;
-};
-
 const EMPTY_PROFILE: CompanyProfile = {
-  demoKey: "custom",
   companyName: "",
   website: "",
   description: "",
@@ -119,120 +104,6 @@ const EMPTY_PROFILE: CompanyProfile = {
   uei: "",
 };
 
-const DEMO_PROFILES: Array<{ key: DemoKey; label: string; detail: string; profile: CompanyProfile }> = [
-  {
-    key: "healthcare",
-    label: "AI Healthcare",
-    detail: "15-person Utah SaaS company",
-    profile: {
-      ...EMPTY_PROFILE,
-      demoKey: "healthcare",
-      companyName: "AI Healthcare demo company",
-      description:
-        "AI-powered software that helps hospitals reduce administrative work for nurses.",
-      industry: "Healthcare technology",
-      technology: "Artificial intelligence, health IT, workflow automation",
-      location: "Utah, United States",
-      employees: "15",
-      revenue: "$1M ARR",
-      capitalRaised: "$2.5M",
-      capitalNeed: "$500K–$2M",
-      useOfFunds: "Product development and hospital pilots",
-      customers: "Hospitals and health systems",
-      researchActivities: "Software R&D and hospital pilot validation",
-      applicantType: "U.S. for-profit small business — founder confirmation needed",
-    },
-  },
-  {
-    key: "manufacturing",
-    label: "Advanced Manufacturing",
-    detail: "35-person Utah hardware company",
-    profile: {
-      ...EMPTY_PROFILE,
-      demoKey: "manufacturing",
-      companyName: "Advanced Manufacturing demo company",
-      description: "Advanced manufacturing for lightweight aerospace components.",
-      industry: "Advanced manufacturing and aerospace",
-      technology: "Lightweight materials, precision manufacturing",
-      location: "Utah, United States",
-      employees: "35",
-      revenue: "$3M",
-      capitalRaised: "$8M",
-      capitalNeed: "$2M–$5M",
-      useOfFunds: "Manufacturing scale-up and R&D",
-      customers: "Aerospace and defense manufacturers",
-      researchActivities: "Materials and manufacturing-process R&D",
-      applicantType: "U.S. for-profit small business — founder confirmation needed",
-    },
-  },
-  {
-    key: "water",
-    label: "Climate / Water",
-    detail: "10-person municipal water startup",
-    profile: {
-      ...EMPTY_PROFILE,
-      demoKey: "water",
-      companyName: "Climate / Water Technology demo company",
-      description: "Sensor and AI platform reducing municipal water loss.",
-      industry: "Water and climate technology",
-      technology: "Water sensors, leak analytics, artificial intelligence",
-      location: "Utah, United States",
-      employees: "10",
-      revenue: "$500K",
-      capitalRaised: "$1.5M",
-      capitalNeed: "$500K–$3M",
-      useOfFunds: "Product development and municipal pilots",
-      customers: "Municipal utilities and public works departments",
-      researchActivities: "Sensor, analytics, and pilot R&D",
-      applicantType: "U.S. for-profit small business — founder confirmation needed",
-    },
-  },
-  {
-    key: "cyber",
-    label: "Cybersecurity",
-    detail: "22-person Utah security startup",
-    profile: {
-      ...EMPTY_PROFILE,
-      demoKey: "cyber",
-      companyName: "Cybersecurity demo company",
-      description: "AI-powered threat detection for small and mid-sized organizations.",
-      industry: "Cybersecurity",
-      technology: "Artificial intelligence, threat detection, security analytics",
-      location: "Utah, United States",
-      employees: "22",
-      revenue: "$2M ARR",
-      capitalRaised: "$5M",
-      capitalNeed: "$1M–$3M",
-      useOfFunds: "R&D and federal/commercial expansion",
-      customers: "Small and mid-sized organizations",
-      researchActivities: "Detection-model and security-platform R&D",
-      applicantType: "U.S. for-profit small business — founder confirmation needed",
-    },
-  },
-  {
-    key: "consumer",
-    label: "Consumer / Workforce",
-    detail: "Intentionally difficult case",
-    profile: {
-      ...EMPTY_PROFILE,
-      demoKey: "consumer",
-      companyName: "Consumer / Workforce Technology demo company",
-      description: "Marketplace connecting parents with local youth activities and enrichment programs.",
-      industry: "Consumer marketplace technology",
-      technology: "Marketplace software and local discovery",
-      location: "Utah, United States",
-      employees: "8",
-      revenue: "$750K",
-      capitalRaised: "$1M",
-      capitalNeed: "$250K–$1M",
-      useOfFunds: "Expansion and technology development",
-      customers: "Parents and local youth-activity providers",
-      researchActivities: "No clear federal R&D activity confirmed",
-      applicantType: "U.S. for-profit small business — founder confirmation needed",
-    },
-  },
-];
-
 const COMMON_APPLICATION_FIELDS: OpportunityCard["applicationFields"] = [
   { label: "Legal organization name", profileKey: "companyName" },
   { label: "Organization website", profileKey: "website" },
@@ -245,549 +116,74 @@ const COMMON_APPLICATION_FIELDS: OpportunityCard["applicationFields"] = [
   { label: "Unique Entity ID", profileKey: "uei" },
 ];
 
-const OPPORTUNITIES: OpportunityCard[] = [
-  {
-    id: "grants-pa-27-100",
-    demoKeys: ["healthcare"],
-    title: "NIH, CDC and FDA Small Business Innovation Research Grant",
-    agency: "National Institutes of Health",
-    opportunityNumber: "PA-27-100 · Grants.gov ID 359671",
-    sourceKind: "Current opportunity",
-    sourceLabel: "Official Simpler.Grants.gov opportunity record",
-    sourceUrl: "https://simpler.grants.gov/opportunity/d1ba49e5-3684-4420-849a-ab2330ec493e",
-    retrievedAt: "August 14, 2026",
-    deadline: "April 5, 2027",
-    amount: "See official notice; varies by phase",
-    fitTier: "Potential Fit",
-    decision: "Verify first",
-    relationship: "Posted current opportunity; applicant-type rule verified, scientific fit still unconfirmed",
-    reasons: [
-      "The notice is an active small-business R&D route across NIH, CDC, and FDA.",
-      "The profile includes healthcare software R&D and commercialization through hospital pilots.",
-    ],
-    concerns: [
-      "This is a broad omnibus SBIR notice, not an AI-specific topic endorsement.",
-      "U.S. small-business ownership, research leadership, work location, and institute interest are unconfirmed.",
-    ],
-    nextAction: "Check the participating NIH institute’s research interests, then verify every SBIR small-business rule before drafting aims.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "grants-rfa-rm-27-013",
-    demoKeys: ["healthcare"],
-    title: "Model-to-Clinic for Precision Medicine with AI (PRIMED-AI)",
-    agency: "National Institutes of Health",
-    opportunityNumber: "RFA-RM-27-013 · Grants.gov ID 359666 · ALN 93.310",
-    sourceKind: "Current opportunity",
-    sourceLabel: "Official Simpler.Grants.gov opportunity record",
-    sourceUrl: "https://simpler.grants.gov/opportunity/360c4588-1512-4fa4-9b61-52a3f1d6c368",
-    retrievedAt: "August 14, 2026",
-    deadline: "October 19, 2026",
-    amount: "See official notice",
-    fitTier: "Adjacent",
-    decision: "Verify first",
-    relationship: "Current AI-health opportunity; scope maturity is the main blocker",
-    reasons: [
-      "The notice explicitly combines AI, precision medicine, imaging, and multimodal health data.",
-      "Small businesses and other for-profit organizations are listed as eligible applicant categories.",
-    ],
-    concerns: [
-      "The program expects a validated multimodal imaging clinical-decision-support prototype.",
-      "Administrative workflow software may fall outside the required scientific scope.",
-    ],
-    nextAction: "Read the required prototype and data modalities first; skip this route if the product is not imaging-based clinical decision support.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "nsf-seed-route",
-    demoKeys: ["healthcare", "manufacturing", "water", "cyber"],
-    title: "NSF America’s Seed Fund",
-    agency: "National Science Foundation",
-    opportunityNumber: "Program route — Project Pitch first",
-    sourceKind: "Program route",
-    sourceLabel: "Official NSF Seed Fund page",
-    sourceUrl: "https://seedfund.nsf.gov/",
-    retrievedAt: "August 14, 2026",
-    deadline: "Project Pitch accepted on a rolling basis",
-    amount: "Verify current phase guidance",
-    fitTier: "Potential Fit",
-    decision: "Verify first",
-    relationship: "Program route, not a promise of eligibility or funding",
-    reasons: [
-      "The profile describes technology R&D with commercialization potential.",
-      "The proposed work is framed as product development rather than general expansion alone.",
-    ],
-    concerns: [
-      "Technical innovation and high-risk R&D must be stronger than routine product engineering.",
-      "Small-business ownership and principal-investigator requirements are unconfirmed.",
-    ],
-    nextAction: "Draft the short Project Pitch around the technical risk, innovation, market need, and R&D plan.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "grants-pd-19-088y",
-    demoKeys: ["manufacturing"],
-    title: "Advanced Manufacturing",
-    agency: "U.S. National Science Foundation",
-    opportunityNumber: "PD-19-088Y · ALN 47.041",
-    sourceKind: "Current opportunity",
-    sourceLabel: "Official Grants.gov opportunity record",
-    sourceUrl: "https://www.grants.gov/search-results-detail/306824",
-    retrievedAt: "August 14, 2026",
-    deadline: "Proposals accepted anytime",
-    amount: "See official program guidance",
-    fitTier: "Potential Fit",
-    decision: "Verify first",
-    relationship: "Current research opportunity; direct startup suitability is not established",
-    reasons: [
-      "The exact program theme is advanced manufacturing and the startup describes process and materials R&D.",
-      "Grants.gov lists the applicant category as unrestricted.",
-    ],
-    concerns: [
-      "This is a research program, not a startup scale-up grant.",
-      "A research-appropriate principal investigator, proposal type, and genuinely novel research question are unconfirmed.",
-    ],
-    nextAction: "Read the NSF program guidance and confirm whether the R&D should be led by the startup, an academic partner, or not pursued through this route.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "grants-nnh26ztr001n",
-    demoKeys: ["manufacturing"],
-    title: "Space Technology Research, Development, Demonstration, and Infusion (SpaceTech REDDI-2026)",
-    agency: "NASA Headquarters",
-    opportunityNumber: "NNH26ZTR001N · Grants.gov ID 360954 · ALN 43.012",
-    sourceKind: "Current opportunity",
-    sourceLabel: "Official Grants.gov opportunity record",
-    sourceUrl: "https://www.grants.gov/search-results-detail/360954",
-    retrievedAt: "August 14, 2026",
-    deadline: "Appendix-specific; umbrella listing is posted",
-    amount: "Appendix-specific",
-    fitTier: "Adjacent",
-    decision: "Verify first",
-    relationship: "Posted NASA umbrella solicitation; a matching open appendix is required",
-    reasons: [
-      "NASA describes this route as research, development, demonstration, and infusion of transformational space technologies.",
-      "The official record says participation is broadly open to industry and notes that NASA space-technology R&D occurs at small businesses.",
-    ],
-    concerns: [
-      "The umbrella listing is not itself a confirmed lightweight-materials or manufacturing topic.",
-      "Each appendix can impose its own technical scope, eligibility, deadline, and cost-sharing rules.",
-    ],
-    nextAction: "Review the currently open NSPIRES appendices and proceed only if one explicitly covers the company’s materials or manufacturing R&D.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "grants-r26as00079",
-    demoKeys: ["water"],
-    title: "Title XVI Water Reclamation and Reuse Projects",
-    agency: "Bureau of Reclamation",
-    opportunityNumber: "R26AS00079 · Grants.gov ID 362396 · ALN 15.504",
-    sourceKind: "Current opportunity",
-    sourceLabel: "Official Grants.gov opportunity record",
-    sourceUrl: "https://www.grants.gov/search-results-detail/362396",
-    retrievedAt: "August 14, 2026",
-    deadline: "Round 1: August 26, 2026 · Final: August 26, 2027",
-    amount: "See official notice",
-    fitTier: "Adjacent",
-    decision: "Partner-dependent",
-    relationship: "Current infrastructure opportunity; the startup is not a listed direct applicant",
-    reasons: [
-      "Municipal water efficiency and pilot deployment relate to the startup’s customer problem.",
-      "A public water entity could have a use for the startup’s sensors and analytics within a larger project.",
-    ],
-    concerns: [
-      "Eligible applicants are public water or power authorities, municipalities, tribes, districts, and similar entities.",
-      "The startup should not apply alone or treat vendor participation as guaranteed grant eligibility.",
-    ],
-    nextAction: "Ask a qualifying municipal water partner whether the technology belongs in its eligible project before doing any grant-writing work.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "grants-25-515",
-    demoKeys: ["cyber"],
-    title: "Security, Privacy, and Trust in Cyberspace",
-    agency: "U.S. National Science Foundation",
-    opportunityNumber: "25-515 · Grants.gov ID 357554 · ALNs 47.049, 47.070, 47.075, 47.076",
-    sourceKind: "Current opportunity",
-    sourceLabel: "Official Grants.gov opportunity record",
-    sourceUrl: "https://www.grants.gov/search-results-detail/357554",
-    retrievedAt: "August 14, 2026",
-    deadline: "September 28, 2026",
-    amount: "$50K floor · $1.2M ceiling in Grants.gov record",
-    fitTier: "Adjacent",
-    decision: "Partner-dependent",
-    relationship: "Current cybersecurity research opportunity; the startup is not a listed direct applicant",
-    reasons: [
-      "The program focuses on security, privacy, resilience, and trust in cyber systems.",
-      "Threat-detection R&D may contribute to a research-led project with a qualifying institution.",
-    ],
-    concerns: [
-      "Direct proposals are limited to eligible U.S. higher-education institutions and qualifying nonprofit research organizations.",
-      "For-profit personnel cannot satisfy the notice’s principal-investigator appointment rule by themselves.",
-    ],
-    nextAction: "Only investigate this route if an eligible university or nonprofit research organization will lead a genuinely research-focused project; otherwise skip it.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-  {
-    id: "dhs-sbir-route",
-    demoKeys: ["cyber"],
-    title: "DHS Small Business Innovation Research",
-    agency: "Department of Homeland Security",
-    opportunityNumber: "Program route — verify a current cybersecurity topic",
-    sourceKind: "Program route",
-    sourceLabel: "Official DHS Science & Technology SBIR page",
-    sourceUrl: "https://www.dhs.gov/science-and-technology/sbir",
-    retrievedAt: "August 14, 2026",
-    deadline: "Verify current solicitation",
-    amount: "Varies by phase and solicitation",
-    fitTier: "Potential Fit",
-    decision: "Verify first",
-    relationship: "Potential R&D route; no current topic has been confirmed",
-    reasons: [
-      "Threat detection and security analytics align with DHS mission areas.",
-      "The profile includes product R&D and possible federal expansion.",
-    ],
-    concerns: [
-      "A current DHS solicitation topic must match the specific threat-detection capability.",
-      "General market expansion is not a fundable R&D objective.",
-    ],
-    nextAction: "Review current DHS topics and write a one-page technical gap statement before pursuing a proposal.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
-  },
-];
-
-function createMatchingOpportunity(
-  id: string,
-  details: Omit<MatchingOpportunity, "id" | "title" | "agency" | "source">,
-): MatchingOpportunity {
-  const display = OPPORTUNITIES.find((item) => item.id === id);
-  if (!display) throw new Error(`Missing display record for ${id}`);
-  return {
-    id,
-    title: display.title,
-    agency: display.agency,
-    source: {
-      sourceId: display.opportunityNumber,
-      sourceName: display.sourceLabel,
-      sourceUrl: display.sourceUrl,
-      retrievedAt: "2026-08-14T21:00:00.000Z",
-      factState: "current",
-      snapshotStatus: "cached_official_snapshot",
-      note:
-        display.sourceKind === "Program route"
-          ? "Official program page snapshot. This is not an active funding notice."
-          : "Official opportunity snapshot. Recheck the live record before acting.",
-    },
-    ...details,
-  };
+function displayDate(value: string) {
+  if (!value) return "Verify on official notice";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsed);
 }
 
-const MATCHING_OPPORTUNITIES: readonly MatchingOpportunity[] = [
-  createMatchingOpportunity("grants-pa-27-100", {
-    recordKind: "opportunity",
-    opportunityStatus: "open",
-    deadline: "2027-04-05T23:59:59Z",
-    missionAreas: ["healthcare delivery", "biomedical research"],
-    exactTerms: ["healthcare", "small business R&D"],
-    controlledConcepts: ["commercialization", "hospital innovation"],
-    technologyAndRd: ["software R&D", "clinical validation"],
-    customerUses: ["hospital operations"],
-    geographies: ["United States"],
-    eligibility: {
-      applicantTypes: ["small business"],
-      usEntity: true,
-      smallBusiness: true,
-    },
-  }),
-  createMatchingOpportunity("grants-rfa-rm-27-013", {
-    recordKind: "opportunity",
-    opportunityStatus: "open",
-    deadline: "2026-10-19T23:59:59Z",
-    missionAreas: ["healthcare delivery", "precision medicine"],
-    exactTerms: ["artificial intelligence", "multimodal imaging"],
-    controlledConcepts: ["clinical decision support", "health data"],
-    technologyAndRd: ["artificial intelligence", "clinical validation"],
-    customerUses: ["health systems"],
-    geographies: ["United States"],
-    eligibility: {
-      applicantTypes: ["small business", "for-profit"],
-      samRegistration: true,
-      uei: true,
-      usEntity: true,
-    },
-  }),
-  createMatchingOpportunity("nsf-seed-route", {
-    recordKind: "program",
-    opportunityStatus: "program",
-    missionAreas: ["technology commercialization"],
-    exactTerms: ["high-risk R&D"],
-    controlledConcepts: ["technical innovation"],
-    technologyAndRd: ["research and development"],
-    customerUses: ["commercialization"],
-    geographies: ["United States"],
-    eligibility: {
-      applicantTypes: ["small business"],
-      usEntity: true,
-      smallBusiness: true,
-    },
-  }),
-  createMatchingOpportunity("grants-pd-19-088y", {
-    recordKind: "opportunity",
-    opportunityStatus: "open",
-    missionAreas: ["advanced manufacturing", "aerospace"],
-    exactTerms: ["advanced manufacturing"],
-    controlledConcepts: ["lightweight components", "manufacturing innovation"],
-    technologyAndRd: ["materials R&D", "manufacturing process R&D"],
-    customerUses: ["aerospace manufacturing"],
-    geographies: ["United States"],
-    eligibility: {
-      samRegistration: true,
-      uei: true,
-    },
-  }),
-  createMatchingOpportunity("grants-nnh26ztr001n", {
-    recordKind: "opportunity",
-    opportunityStatus: "open",
-    missionAreas: ["aerospace", "technology commercialization"],
-    exactTerms: ["space technology"],
-    controlledConcepts: ["technical innovation"],
-    technologyAndRd: ["research and development", "materials R&D"],
-    customerUses: ["commercialization"],
-    geographies: ["United States"],
-    eligibility: {
-      applicantTypes: ["industry", "small business", "for-profit"],
-      samRegistration: true,
-      uei: true,
-    },
-  }),
-  createMatchingOpportunity("grants-r26as00079", {
-    recordKind: "opportunity",
-    opportunityStatus: "open",
-    deadline: "2026-08-26T23:59:59Z",
-    missionAreas: ["water resilience", "municipal infrastructure"],
-    exactTerms: ["water reuse", "municipal water"],
-    controlledConcepts: ["water efficiency", "public infrastructure"],
-    technologyAndRd: ["sensor R&D", "water analytics"],
-    customerUses: ["municipal utilities"],
-    geographies: ["Utah", "United States"],
-    eligibility: {
-      applicantTypes: ["public water entity", "municipality", "tribe", "water district"],
-      samRegistration: true,
-      uei: true,
-      partnerMaySatisfy: ["applicantType"],
-    },
-  }),
-  createMatchingOpportunity("grants-25-515", {
-    recordKind: "opportunity",
-    opportunityStatus: "open",
-    deadline: "2026-09-28T23:59:59Z",
-    amount: { min: 50_000, max: 1_200_000, currency: "USD" },
-    missionAreas: ["cybersecurity"],
-    exactTerms: ["cybersecurity"],
-    controlledConcepts: ["cyber resilience"],
-    technologyAndRd: ["cybersecurity R&D"],
-    customerUses: [],
-    geographies: ["United States"],
-    eligibility: {
-      applicantTypes: ["institution of higher education", "nonprofit research organization"],
-      samRegistration: true,
-      uei: true,
-      partnerMaySatisfy: ["applicantType"],
-    },
-  }),
-  createMatchingOpportunity("dhs-sbir-route", {
-    recordKind: "program",
-    opportunityStatus: "program",
-    missionAreas: ["cybersecurity", "homeland security"],
-    exactTerms: ["threat detection", "small business innovation"],
-    controlledConcepts: ["cyber resilience", "federal security"],
-    technologyAndRd: ["cybersecurity R&D", "artificial intelligence"],
-    customerUses: ["federal agencies", "small organizations"],
-    geographies: ["United States"],
-    eligibility: {
-      applicantTypes: ["small business"],
-      samRegistration: true,
-      uei: true,
-      usEntity: true,
-      smallBusiness: true,
-    },
-  }),
-];
-
-function hasAny(text: string, terms: readonly string[]) {
-  return terms.some((term) => text.includes(term));
-}
-
-function registrationState(value: string): RegistrationState {
-  const normalized = value.trim().toLowerCase();
-  if (/^(yes|active|registered|confirmed)$/.test(normalized)) return "yes";
-  if (/^(no|inactive|not registered)$/.test(normalized)) return "no";
-  return "unknown";
-}
-
-function parseTargetAmount(value: string): MatchingCompanyProfile["targetAmount"] {
-  const amounts = [...value.matchAll(/\$?\s*([\d.]+)\s*([km])/gi)].map((match) => {
-    const multiplier = match[2].toLowerCase() === "m" ? 1_000_000 : 1_000;
-    return Number(match[1]) * multiplier;
+function displayAmount(
+  amount: DiscoveryRecommendation["opportunity"]["amount"],
+) {
+  if (!amount) return "Verify on official notice";
+  const formatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: amount.currency,
+    maximumFractionDigits: 0,
   });
-  if (!amounts.length) return undefined;
-  return {
-    min: Math.min(...amounts),
-    max: Math.max(...amounts),
-    currency: "USD",
-  };
+  if (amount.min !== undefined && amount.max !== undefined) {
+    return `${formatter.format(amount.min)}–${formatter.format(amount.max)}`;
+  }
+  if (amount.max !== undefined) return `Up to ${formatter.format(amount.max)}`;
+  if (amount.min !== undefined) return `From ${formatter.format(amount.min)}`;
+  return "Verify on official notice";
 }
 
-function toMatchingProfile(profile: CompanyProfile): MatchingCompanyProfile {
-  const text = [
-    profile.description,
-    profile.industry,
-    profile.technology,
-    profile.useOfFunds,
-    profile.customers,
-    profile.researchActivities,
-  ]
-    .join(" ")
-    .toLowerCase();
-  const missionAreas: string[] = [];
-  const exactTerms: string[] = [];
-  const controlledConcepts: string[] = [];
-  const technologyAndRd: string[] = [];
-  const customerUses: string[] = [];
-  const operatingGeographies: string[] = [];
-  const add = (target: string[], value: string) => {
-    if (!target.includes(value)) target.push(value);
-  };
-  const hasResearch = /r&d|research|product development|technical development/.test(text) &&
-    !/no clear federal r&d|no research/.test(text);
-
-  if (hasAny(text, ["healthcare", "hospital", "nurse", "clinical", "patient"])) {
-    add(missionAreas, "healthcare delivery");
-    add(missionAreas, "biomedical research");
-    add(exactTerms, "healthcare");
-    add(controlledConcepts, "hospital innovation");
-    add(technologyAndRd, "software R&D");
-    add(technologyAndRd, "clinical validation");
-    add(customerUses, "hospital operations");
-    add(customerUses, "health systems");
-  }
-  if (hasAny(text, ["artificial intelligence", "machine learning", " ai ", "ai-powered"])) {
-    add(exactTerms, "artificial intelligence");
-    add(technologyAndRd, "artificial intelligence");
-  }
-  if (hasAny(text, ["advanced manufacturing", "aerospace", "lightweight component"])) {
-    add(missionAreas, "advanced manufacturing");
-    add(missionAreas, "aerospace");
-    add(exactTerms, "advanced manufacturing");
-    add(controlledConcepts, "lightweight components");
-    add(controlledConcepts, "manufacturing innovation");
-    add(technologyAndRd, "materials R&D");
-    add(technologyAndRd, "manufacturing process R&D");
-    add(customerUses, "aerospace manufacturing");
-  }
-  if (hasAny(text, ["municipal water", "water loss", "water sensor", "water infrastructure"])) {
-    add(missionAreas, "water resilience");
-    add(missionAreas, "municipal infrastructure");
-    add(exactTerms, "municipal water");
-    add(controlledConcepts, "water efficiency");
-    add(controlledConcepts, "public infrastructure");
-    add(technologyAndRd, "sensor R&D");
-    add(technologyAndRd, "water analytics");
-    add(customerUses, "municipal utilities");
-  }
-  if (hasAny(text, ["cybersecurity", "threat detection", "security analytics"])) {
-    add(missionAreas, "cybersecurity");
-    add(exactTerms, "cybersecurity");
-    add(exactTerms, "threat detection");
-    add(controlledConcepts, "cyber resilience");
-    add(technologyAndRd, "cybersecurity R&D");
-    add(customerUses, "small organizations");
-    if (text.includes("federal")) {
-      add(missionAreas, "homeland security");
-      add(controlledConcepts, "federal security");
-      add(customerUses, "federal agencies");
-    }
-  }
-  if (hasResearch) {
-    add(missionAreas, "technology commercialization");
-    add(controlledConcepts, "technical innovation");
-    add(technologyAndRd, "research and development");
-    add(customerUses, "commercialization");
-    add(controlledConcepts, "commercialization");
-  }
-  if (profile.location.toLowerCase().includes("utah")) add(operatingGeographies, "Utah");
-  if (/united states|\bu\.s\.?\b|utah/i.test(profile.location)) add(operatingGeographies, "United States");
-
-  const applicantText = profile.applicantType.toLowerCase();
-  const applicantConfirmed =
-    applicantText.length > 0 &&
-    !applicantText.includes("unknown") &&
-    !applicantText.includes("confirmation needed");
-  const applicantTypes: string[] = [];
-  const legalEntityTypes: string[] = [];
-  if (applicantText.includes("small business")) add(applicantTypes, "small business");
-  if (applicantText.includes("for-profit")) {
-    add(applicantTypes, "for-profit");
-    add(legalEntityTypes, "for-profit");
-  }
-
+function mapDiscoveryRecommendation(
+  recommendation: DiscoveryRecommendation,
+): RankedOpportunityCard {
+  const { opportunity, match } = recommendation;
+  const eligibilityChecks = match.eligibility
+    .filter((check) => check.state !== "pass")
+    .map((check) => check.detail);
+  const reasons = [
+    match.reason,
+    ...(match.matchedConceptGroups.length
+      ? [`Matched evidence groups: ${match.matchedConceptGroups.join(", ")}.`]
+      : []),
+  ];
   return {
-    id: profile.demoKey,
-    name: profile.companyName,
-    description: profile.description,
-    missionAreas,
-    exactTerms,
-    controlledConcepts,
-    technologyAndRd,
-    customerUses,
-    operatingGeographies,
-    targetAmount: parseTargetAmount(profile.capitalNeed),
-    legalEntityTypes,
-    applicantTypes,
-    samRegistration: registrationState(profile.samStatus),
-    uei: profile.uei.trim() ? "yes" : "unknown",
-    usEntity: applicantConfirmed && /u\.s\.|united states/.test(applicantText) ? "yes" : "unknown",
-    smallBusiness: applicantConfirmed && applicantText.includes("small business") ? "yes" : "unknown",
-    requiredClearances: [],
-    certifications: [],
-    profileProvenance: {
-      sourceId: profile.demoKey,
-      sourceName: "Founder-confirmed company profile",
-      sourceUrl: profile.website || "https://government-opportunity-map.bigtoken.workers.dev/",
-      retrievedAt: new Date().toISOString(),
-      factState: "unknown",
-      snapshotStatus: "live",
-      note: "Company facts remain founder-controlled and are not government eligibility determinations.",
-    },
+    id: opportunity.id,
+    title: opportunity.title,
+    agency: opportunity.agency,
+    opportunityNumber: opportunity.opportunityNumber ?? opportunity.source.sourceId,
+    sourceKind: opportunity.opportunityStatus === "forecast"
+      ? "Forecasted opportunity"
+      : "Current opportunity",
+    sourceLabel: opportunity.source.snapshotStatus === "live"
+      ? opportunity.source.sourceName
+      : `${opportunity.source.sourceName} · audited official fallback`,
+    sourceUrl: opportunity.source.sourceUrl,
+    retrievedAt: displayDate(opportunity.source.retrievedAt),
+    deadline: displayDate(opportunity.deadline ?? ""),
+    amount: displayAmount(opportunity.amount),
+    fitTier: match.fitStatus === "Strong Fit" ? "Likely Fit" : "Potential Fit",
+    decision: match.decision,
+    relationship: match.reason,
+    reasons,
+    concerns: eligibilityChecks.length
+      ? eligibilityChecks
+      : ["Verify every notice-specific eligibility rule on the official source."],
+    nextAction: "Open the official notice and check the applicant type, registrations, project scope, and deadline.",
+    applicationFields: COMMON_APPLICATION_FIELDS,
+    score: match.score.total,
+    eligibilityChecks,
   };
-}
-
-function mapRankedResults(profile: CompanyProfile): RankedOpportunityCard[] {
-  const displayById = new Map(OPPORTUNITIES.map((item) => [item.id, item]));
-  return rankOpportunities(toMatchingProfile(profile), MATCHING_OPPORTUNITIES)
-    .filter((result) => result.decision !== "Skip" && result.score.total >= 35)
-    .map((result: MatchResult) => {
-      const display = displayById.get(result.opportunityId);
-      if (!display) throw new Error(`Missing display details for ${result.opportunityId}`);
-      const fitTier: FitTier =
-        result.fitStatus === "Strong Fit"
-          ? "Likely Fit"
-          : display.fitTier === "Adjacent"
-            ? "Adjacent"
-            : "Potential Fit";
-      const eligibilityChecks = result.eligibility
-        .filter((check) => check.state !== "pass")
-        .map((check) => check.detail);
-      return {
-        ...display,
-        fitTier,
-        decision: result.decision,
-        score: result.score.total,
-        eligibilityChecks,
-        concerns: [...new Set([...display.concerns, ...eligibilityChecks])],
-      };
-    })
-    .slice(0, 3);
 }
 
 const INITIAL_CHECKLIST = [
@@ -799,40 +195,12 @@ const INITIAL_CHECKLIST = [
   { id: "package", label: "Review the official application package", detail: "Leave unsupported answers blank until the founder supplies them." },
 ];
 
-const HEALTHCARE_HISTORY = {
-  recipient: "PROFUSA, INC.",
-  awardId: "R01EB016414",
-  amount: "$4,881,972",
-  assistanceListing: "93.310",
-  startDate: "September 15, 2012",
-  endDate: "June 30, 2016",
-  description: "IMPLANTABLE MULTI-ANALYTE SENSORS FOR THE CONTINUOUS MONITORING OF BODY CHEMISTRI",
-  sourceUrl: "https://www.usaspending.gov/award/ASST_NON_R01EB016414_075/",
-  retrievedAt: "August 14, 2026",
-};
-
 const STORAGE_KEY = "government-opportunity-map-workspace-v1";
 
-function inferDemoKey(text: string): DemoKey | "custom" {
-  const value = text.toLowerCase();
-  if (/nurse|hospital|healthcare|clinical|patient/.test(value)) return "healthcare";
-  if (/aerospace|manufactur|lightweight component/.test(value)) return "manufacturing";
-  if (/water|municipal|leak|climate/.test(value)) return "water";
-  if (/cyber|threat|security/.test(value)) return "cyber";
-  if (/parent|youth activit|enrichment|marketplace/.test(value)) return "consumer";
-  return "custom";
-}
-
 function profileFromText(text: string): CompanyProfile {
-  const demoKey = inferDemoKey(text);
-  const preset = DEMO_PROFILES.find((item) => item.key === demoKey);
-  if (preset) return { ...preset.profile, description: text };
   return {
     ...EMPTY_PROFILE,
-    description: text,
-    industry: "Founder confirmation needed",
-    technology: "Founder confirmation needed",
-    location: "Founder confirmation needed",
+    ...createEvidenceOnlyFounderProfile(text),
   };
 }
 
@@ -961,11 +329,15 @@ export default function OpportunityWorkbench() {
   const [intakeStatus, setIntakeStatus] = useState<"idle" | "loading" | "error">("idle");
   const [intakeMessage, setIntakeMessage] = useState("");
   const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
-  const [checklist, setChecklist] = useState<Record<string, boolean>>({});
+  const [checklistByOpportunity, setChecklistByOpportunity] = useState<WorkspaceState["checklistByOpportunity"]>({});
   const [hydrated, setHydrated] = useState(false);
   const [saved, setSaved] = useState(false);
   const [grantsHealth, setGrantsHealth] = useState<SourceHealth>({ status: "idle", message: "" });
   const [spendingHealth, setSpendingHealth] = useState<SourceHealth>({ status: "idle", message: "" });
+  const [matches, setMatches] = useState<RankedOpportunityCard[]>([]);
+  const [historicalAwards, setHistoricalAwards] = useState<HistoricalAwardRecord[]>([]);
+  const [sourceSummaries, setSourceSummaries] = useState<SourceSearchSummary[]>([]);
+  const [searchStatus, setSearchStatus] = useState<"idle" | "loading" | "error">("idle");
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -976,14 +348,21 @@ export default function OpportunityWorkbench() {
             stage?: Stage;
             profile?: CompanyProfile;
             selectedOpportunityId?: string;
-            checklist?: Record<string, boolean>;
+            workspace?: WorkspaceState;
             sourceEvidence?: string[];
+            matches?: RankedOpportunityCard[];
+            historicalAwards?: HistoricalAwardRecord[];
+            sourceSummaries?: SourceSearchSummary[];
           };
           if (parsed.profile) setProfile(parsed.profile);
           if (parsed.stage) setStage(parsed.stage);
-          if (parsed.selectedOpportunityId) setSelectedOpportunityId(parsed.selectedOpportunityId);
-          if (parsed.checklist) setChecklist(parsed.checklist);
+          const workspace = hydrateWorkspace(parsed.workspace ? JSON.stringify(parsed.workspace) : null);
+          setSelectedOpportunityId(workspace.selectedOpportunityId);
+          setChecklistByOpportunity(workspace.checklistByOpportunity);
           if (parsed.sourceEvidence) setSourceEvidence(parsed.sourceEvidence);
+          if (parsed.matches) setMatches(parsed.matches);
+          if (parsed.historicalAwards) setHistoricalAwards(parsed.historicalAwards);
+          if (parsed.sourceSummaries) setSourceSummaries(parsed.sourceSummaries);
         }
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -999,89 +378,45 @@ export default function OpportunityWorkbench() {
     const timeout = window.setTimeout(() => {
       window.localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ stage, profile, selectedOpportunityId, checklist, sourceEvidence }),
+        JSON.stringify({
+          stage,
+          profile,
+          workspace: {
+            version: 2,
+            selectedOpportunityId,
+            checklistByOpportunity,
+          },
+          sourceEvidence,
+          matches,
+          historicalAwards,
+          sourceSummaries,
+        }),
       );
       setSaved(true);
     }, 180);
     return () => window.clearTimeout(timeout);
-  }, [checklist, hydrated, profile, selectedOpportunityId, sourceEvidence, stage]);
+  }, [
+    checklistByOpportunity,
+    historicalAwards,
+    hydrated,
+    matches,
+    profile,
+    selectedOpportunityId,
+    sourceEvidence,
+    sourceSummaries,
+    stage,
+  ]);
 
-  const profileKey = profile.demoKey === "custom" ? inferDemoKey(`${profile.description} ${profile.industry} ${profile.technology}`) : profile.demoKey;
-  const matches = useMemo(() => mapRankedResults(profile), [profile]);
   const currentNoticeCount = matches.filter((item) => item.sourceKind !== "Program route").length;
   const selectedOpportunity =
     matches.find((item) => item.id === selectedOpportunityId) ??
-    OPPORTUNITIES.find((item) => item.id === selectedOpportunityId) ??
     matches[0] ??
     null;
-  const completedCount = INITIAL_CHECKLIST.filter((item) => checklist[item.id]).length;
-
-  useEffect(() => {
-    if (stage !== "results") return;
-
-    const controller = new AbortController();
-    const sourceCheckTimer = window.setTimeout(() => {
-      const currentRecord = matches.find((item) => item.sourceKind === "Current opportunity");
-      if (currentRecord) {
-        const opportunityNumber = currentRecord.opportunityNumber.split(" · ")[0];
-        setGrantsHealth({ status: "checking", message: `Checking ${opportunityNumber} against the live Grants.gov catalog…` });
-        void fetch("/api/sources/grants", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opportunityNumber }),
-          signal: controller.signal,
-        })
-          .then(async (response) => {
-            if (!response.ok) throw new Error("Source route failed");
-            const result = (await response.json()) as GrantsSourceResponse;
-            const record = result.records?.[0];
-            const status = result.sourceStatus ?? "unavailable";
-            const message =
-              status === "live" && record
-                ? `Live Grants.gov check: ${record.opportunityNumber ?? opportunityNumber} is ${record.status ?? "listed"}${record.closeDate ? `; catalog close date ${record.closeDate}` : ""}.`
-                : result.warning ?? "Live catalog check returned no validated record; the audited snapshot remains labeled.";
-            setGrantsHealth({ status, message });
-          })
-          .catch((error: unknown) => {
-            if (error instanceof DOMException && error.name === "AbortError") return;
-            setGrantsHealth({ status: "unavailable", message: "The browser could not complete the live catalog check. The audited snapshot remains labeled." });
-          });
-      } else {
-        setGrantsHealth({ status: "idle", message: "No current notice was ranked, so no live opportunity status is implied." });
-      }
-
-      if (profileKey === "healthcare") {
-        setSpendingHealth({ status: "checking", message: "Checking USAspending.gov for same-program historical context…" });
-        void fetch("/api/sources/usaspending", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assistanceListing: HEALTHCARE_HISTORY.assistanceListing }),
-          signal: controller.signal,
-        })
-          .then(async (response) => {
-            if (!response.ok) throw new Error("Source route failed");
-            const result = (await response.json()) as SpendingSourceResponse;
-            const status = result.sourceStatus ?? "unavailable";
-            const message =
-              status === "live"
-                ? `Live USAspending query validated ${result.records?.length ?? 0} business prime award record${result.records?.length === 1 ? "" : "s"} with primary Assistance Listing ${HEALTHCARE_HISTORY.assistanceListing}.`
-                : result.warning ?? "Historical source check returned no validated records; the audited snapshot remains labeled.";
-            setSpendingHealth({ status, message });
-          })
-          .catch((error: unknown) => {
-            if (error instanceof DOMException && error.name === "AbortError") return;
-            setSpendingHealth({ status: "unavailable", message: "The browser could not complete the live historical check. The audited snapshot remains labeled." });
-          });
-      } else {
-        setSpendingHealth({ status: "idle", message: "" });
-      }
-    }, 0);
-
-    return () => {
-      window.clearTimeout(sourceCheckTimer);
-      controller.abort();
-    };
-  }, [matches, profileKey, stage]);
+  const historicalAward = historicalAwards[0] ?? null;
+  const activeChecklist = selectedOpportunityId
+    ? checklistByOpportunity[selectedOpportunityId] ?? {}
+    : {};
+  const completedCount = INITIAL_CHECKLIST.filter((item) => activeChecklist[item.id]).length;
 
   function resetWorkspace() {
     window.localStorage.removeItem(STORAGE_KEY);
@@ -1093,17 +428,14 @@ export default function OpportunityWorkbench() {
     setDocumentMessage("");
     setSourceEvidence([]);
     setSelectedOpportunityId("");
-    setChecklist({});
+    setChecklistByOpportunity({});
     setIntakeMessage("");
-  }
-
-  function loadDemo(key: DemoKey) {
-    const preset = DEMO_PROFILES.find((item) => item.key === key);
-    if (!preset) return;
-    setProfile({ ...preset.profile });
-    setSourceEvidence(["Startup facts: official hackathon test case supplied by the sponsor."]);
-    setStage("review");
-    setIntakeMessage("");
+    setMatches([]);
+    setHistoricalAwards([]);
+    setSourceSummaries([]);
+    setSearchStatus("idle");
+    setGrantsHealth({ status: "idle", message: "" });
+    setSpendingHealth({ status: "idle", message: "" });
   }
 
   async function analyzeWebsite(event: FormEvent) {
@@ -1121,12 +453,14 @@ export default function OpportunityWorkbench() {
       const nextProfile: CompanyProfile = {
         ...EMPTY_PROFILE,
         ...result.profile,
-        demoKey: inferDemoKey(`${result.profile.description ?? ""} ${result.profile.industry ?? ""}`),
         applicantType: "Unknown — founder input needed",
         ownership: "Unknown — founder input needed",
         samStatus: "Unknown",
       };
       setProfile(nextProfile);
+      setMatches([]);
+      setHistoricalAwards([]);
+      setSourceSummaries([]);
       setSourceEvidence(
         (result.evidence ?? []).map((item) => `${item.field}: extracted from ${new URL(item.sourceUrl).hostname}`),
       );
@@ -1147,6 +481,9 @@ export default function OpportunityWorkbench() {
       return;
     }
     setProfile(profileFromText(manualText.trim()));
+    setMatches([]);
+    setHistoricalAwards([]);
+    setSourceSummaries([]);
     setSourceEvidence(["Company description: provided directly by the founder."]);
     setIntakeStatus("idle");
     setIntakeMessage("");
@@ -1184,11 +521,50 @@ export default function OpportunityWorkbench() {
     setProfile((current) => ({ ...current, [key]: value }));
   }
 
-  function buildMap() {
-    const inferred = inferDemoKey(`${profile.description} ${profile.industry} ${profile.technology}`);
-    setProfile((current) => ({ ...current, demoKey: inferred }));
-    setStage("results");
+  async function buildMap() {
+    const confirmedProfile = profile;
+    setProfile(confirmedProfile);
+    setSearchStatus("loading");
     setSelectedOpportunityId("");
+    setGrantsHealth({ status: "checking", message: "Searching Grants.gov for current opportunities…" });
+    setSpendingHealth({ status: "checking", message: "Searching historical award sources…" });
+    try {
+      const response = await fetch("/api/opportunities/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile: confirmedProfile }),
+      });
+      const result = (await response.json()) as GovernmentSourceSearchResult & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Government source search failed.");
+      setMatches(result.discovery.recommendations.map(mapDiscoveryRecommendation));
+      setHistoricalAwards([...result.discovery.historicalAwards]);
+      setSourceSummaries([...result.sources]);
+      const grants = result.sources.find((source) => source.family === "grants");
+      const spending = result.sources.find((source) => source.family === "usaspending");
+      setGrantsHealth({
+        status: grants?.status ?? "unavailable",
+        message: grants?.warning ?? `${grants?.recordCount ?? 0} validated Grants.gov record${grants?.recordCount === 1 ? "" : "s"} normalized for matching.`,
+      });
+      setSpendingHealth({
+        status: spending?.status ?? "unavailable",
+        message: spending?.warning ?? `${spending?.recordCount ?? 0} historical USAspending record${spending?.recordCount === 1 ? "" : "s"} kept separate from recommendations.`,
+      });
+      setSearchStatus("idle");
+      setStage("results");
+    } catch (error) {
+      setMatches([]);
+      setHistoricalAwards([]);
+      setSourceSummaries([]);
+      setGrantsHealth({
+        status: "unavailable",
+        message: error instanceof Error
+          ? error.message
+          : "Government sources could not be searched.",
+      });
+      setSpendingHealth({ status: "unavailable", message: "" });
+      setSearchStatus("error");
+      setStage("results");
+    }
   }
 
   function openWorkspace(opportunity: OpportunityCard) {
@@ -1317,24 +693,6 @@ export default function OpportunityWorkbench() {
                   </div>
                 )}
 
-                <div className="my-7 flex items-center gap-3 text-xs uppercase tracking-[0.14em] text-[#8a938d]">
-                  <span className="h-px flex-1 bg-[#17211b]/10" />
-                  Or load a test case
-                  <span className="h-px flex-1 bg-[#17211b]/10" />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {DEMO_PROFILES.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => loadDemo(item.key)}
-                      className="rounded-2xl border border-[#17211b]/10 bg-white px-4 py-3 text-left transition hover:border-[#3f7557]/40 hover:bg-[#f8faf6]"
-                    >
-                      <span className="block text-sm font-bold">{item.label}</span>
-                      <span className="mt-1 block text-xs text-[#748077]">{item.detail}</span>
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
           </section>
@@ -1391,8 +749,13 @@ export default function OpportunityWorkbench() {
                     <li>Exact notice-specific eligibility</li>
                   </ul>
                 </div>
-                <button type="button" onClick={buildMap} className="w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white shadow-[0_16px_35px_rgba(23,61,44,0.18)] hover:bg-[#214f39]">
-                  Confirm profile and build map
+                <button
+                  type="button"
+                  onClick={() => void buildMap()}
+                  disabled={searchStatus === "loading"}
+                  className="w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white shadow-[0_16px_35px_rgba(23,61,44,0.18)] hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
+                >
+                  {searchStatus === "loading" ? "Searching official sources…" : "Confirm profile and build map"}
                 </button>
               </aside>
             </div>
@@ -1406,8 +769,8 @@ export default function OpportunityWorkbench() {
                 <p>
                   <span className="font-bold">Source mode:</span>{" "}
                   {currentNoticeCount
-                    ? `${currentNoticeCount} current Grants.gov record${currentNoticeCount === 1 ? "" : "s"} in the audited August 14 snapshot; program routes remain labeled separately.`
-                    : "Audited official-program fallback only. No program route is being presented as a live notice."}
+                    ? `${currentNoticeCount} current Grants.gov record${currentNoticeCount === 1 ? "" : "s"} ranked; program definitions and historical awards remain separate.`
+                    : "No sourced current opportunity passed the deterministic relevance threshold."}
                 </p>
                 <span className="mt-2 inline-flex shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold sm:mt-0">
                   {grantsHealth.status === "checking"
@@ -1422,6 +785,11 @@ export default function OpportunityWorkbench() {
                 </span>
               </div>
               {grantsHealth.message && <p className="mt-2 text-xs leading-5 opacity-80">{grantsHealth.message}</p>}
+              {sourceSummaries.length > 0 && (
+                <p className="mt-2 text-xs leading-5 opacity-80">
+                  Source checks: {sourceSummaries.map((source) => `${source.family} ${source.status} (${source.recordCount})`).join(" · ")}
+                </p>
+              )}
             </div>
 
             <div className="mt-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -1433,9 +801,7 @@ export default function OpportunityWorkbench() {
                 <p className="mt-4 max-w-3xl text-base leading-7 text-[#5f6b63]">
                   {matches.length
                     ? "Unknown critical facts cap these at Potential Fit. Open the evidence before deciding whether to pursue."
-                    : profileKey === "consumer"
-                      ? "This founder may be better served by customer revenue, partnerships, local programs, or procurement discovery than by forcing a weak federal grant match."
-                      : "The current audited route set does not support a defensible recommendation for this profile yet."}
+                    : "The current audited route set does not support a defensible recommendation for this profile yet."}
                 </p>
               </div>
               <button type="button" onClick={() => setStage("review")} className="w-fit rounded-full border border-[#17211b]/12 bg-white px-4 py-2.5 text-sm font-semibold">Edit verified profile</button>
@@ -1508,7 +874,7 @@ export default function OpportunityWorkbench() {
               </div>
             )}
 
-            {profileKey === "healthcare" ? (
+            {historicalAward ? (
               <div className="mt-8 overflow-hidden rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed]">
                 <div className="grid lg:grid-cols-[0.7fr_0.3fr]">
                   <div className="p-6 sm:p-7">
@@ -1516,19 +882,19 @@ export default function OpportunityWorkbench() {
                       <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Historical intelligence</p>
                       <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-[#59655e]">Historical award · not open funding</span>
                     </div>
-                    <h2 className="mt-4 text-2xl font-semibold tracking-[-0.035em]">{HEALTHCARE_HISTORY.recipient}</h2>
-                    <p className="mt-2 text-sm leading-6 text-[#59655e]">{HEALTHCARE_HISTORY.description}</p>
+                    <h2 className="mt-4 text-2xl font-semibold tracking-[-0.035em]">{historicalAward.recipient}</h2>
+                    <p className="mt-2 text-sm leading-6 text-[#59655e]">{historicalAward.description || historicalAward.title}</p>
                     <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">USAspending award amount</p><p className="mt-2 text-sm font-bold">{HEALTHCARE_HISTORY.amount}</p></div>
-                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Award ID</p><p className="mt-2 text-sm font-bold">{HEALTHCARE_HISTORY.awardId}</p></div>
-                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Assistance Listing</p><p className="mt-2 text-sm font-bold">{HEALTHCARE_HISTORY.assistanceListing}</p></div>
+                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Historical award amount</p><p className="mt-2 text-sm font-bold">{historicalAward.amount ? historicalAward.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "Not reported"}</p></div>
+                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Award ID</p><p className="mt-2 text-sm font-bold">{historicalAward.source.sourceId}</p></div>
+                      <div className="rounded-2xl bg-white p-4"><p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#7a837d]">Assistance Listing</p><p className="mt-2 text-sm font-bold">{historicalAward.assistanceListing || "Not provided"}</p></div>
                     </div>
                   </div>
                   <aside className="border-t border-[#17211b]/10 bg-white/70 p-6 lg:border-l lg:border-t-0">
                     <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#667169]">What this proves</p>
-                    <p className="mt-3 text-sm leading-6 text-[#59655e]">This is program-level history under Assistance Listing 93.310. It is not a recipient of the current PRIMED-AI notice and does not prove eligibility.</p>
-                    <p className="mt-4 text-xs leading-5 text-[#7a837d]">Period: {HEALTHCARE_HISTORY.startDate} to {HEALTHCARE_HISTORY.endDate}</p>
-                    <a href={HEALTHCARE_HISTORY.sourceUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex rounded-xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm font-bold text-[#315d43]">Open USAspending award</a>
+                    <p className="mt-3 text-sm leading-6 text-[#59655e]">This {historicalAward.source.sourceName} record is historical context only. It is not an open opportunity and does not prove current eligibility.</p>
+                    <p className="mt-4 text-xs leading-5 text-[#7a837d]">Period: {displayDate(historicalAward.startDate)} to {displayDate(historicalAward.endDate)}</p>
+                    <a href={historicalAward.source.sourceUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex rounded-xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm font-bold text-[#315d43]">Open official award record</a>
                     {spendingHealth.message && (
                       <div className="mt-4 rounded-xl border border-[#17211b]/8 bg-white px-3 py-3">
                         <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#47795b]">
@@ -1537,7 +903,7 @@ export default function OpportunityWorkbench() {
                         <p className="mt-1 text-[11px] leading-5 text-[#778179]">{spendingHealth.message}</p>
                       </div>
                     )}
-                    <p className="mt-3 text-[11px] text-[#8a938d]">Prime award deduplicated · Retrieved {HEALTHCARE_HISTORY.retrievedAt}</p>
+                    <p className="mt-3 text-[11px] text-[#8a938d]">Historical record · Retrieved {displayDate(historicalAward.source.retrievedAt)}</p>
                   </aside>
                 </div>
               </div>
@@ -1623,9 +989,17 @@ export default function OpportunityWorkbench() {
                   <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#e4e8e2]"><div className="h-full rounded-full bg-[#4c9b67] transition-all" style={{ width: `${(completedCount / INITIAL_CHECKLIST.length) * 100}%` }} /></div>
                   <div className="mt-6 grid gap-3">
                     {INITIAL_CHECKLIST.map((item) => (
-                      <label key={item.id} className={`flex cursor-pointer gap-3 rounded-2xl border p-4 transition ${checklist[item.id] ? "border-[#77ae89]/40 bg-[#edf6ef]" : "border-[#17211b]/10 bg-white"}`}>
-                        <input type="checkbox" checked={Boolean(checklist[item.id])} onChange={(event) => setChecklist((current) => ({ ...current, [item.id]: event.target.checked }))} className="mt-0.5 h-4 w-4 accent-[#2f704a]" />
-                        <span><span className={`block text-sm font-bold ${checklist[item.id] ? "text-[#315d43] line-through" : ""}`}>{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#748077]">{item.detail}</span></span>
+                      <label key={item.id} className={`flex cursor-pointer gap-3 rounded-2xl border p-4 transition ${activeChecklist[item.id] ? "border-[#77ae89]/40 bg-[#edf6ef]" : "border-[#17211b]/10 bg-white"}`}>
+                        <input type="checkbox" checked={Boolean(activeChecklist[item.id])} onChange={(event) => {
+                          if (!selectedOpportunityId) return;
+                          setChecklistByOpportunity((current) => setChecklistItem(
+                            { version: 2, selectedOpportunityId, checklistByOpportunity: current },
+                            selectedOpportunityId,
+                            item.id,
+                            event.target.checked,
+                          ).checklistByOpportunity);
+                        }} className="mt-0.5 h-4 w-4 accent-[#2f704a]" />
+                        <span><span className={`block text-sm font-bold ${activeChecklist[item.id] ? "text-[#315d43] line-through" : ""}`}>{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#748077]">{item.detail}</span></span>
                       </label>
                     ))}
                   </div>
