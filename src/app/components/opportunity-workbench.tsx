@@ -111,6 +111,35 @@ type SourceHealth = {
   message: string;
 };
 
+type ExternalSourcePrompt = {
+  url: string;
+  title: string;
+  context: string;
+};
+
+const EXTERNAL_SOURCE_CHECKS = [
+  {
+    label: "Application route",
+    prompt: "Is this a direct application or a partner-dependent pathway?",
+  },
+  {
+    label: "Record status",
+    prompt: "Is the notice current, forecasted, expired, or archived?",
+  },
+  {
+    label: "Eligibility subject",
+    prompt: "Does eligibility apply to the company, a principal investigator, or a consortium?",
+  },
+  {
+    label: "Geography",
+    prompt: "Are there domestic, state, manufacturing-location, or international restrictions?",
+  },
+  {
+    label: "Goal fit",
+    prompt: "Does this route still match the founder’s actual project and goal?",
+  },
+] as const;
+
 const EMPTY_PROFILE: CompanyProfile = {
   companyName: "",
   founderName: "",
@@ -474,6 +503,68 @@ function DecisionPill({ decision }: { decision: Decision }) {
   return <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${styles[decision]}`}>{decision}</span>;
 }
 
+function ExternalSourceConfirmation({
+  prompt,
+  onClose,
+}: {
+  prompt: ExternalSourcePrompt;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid overflow-y-auto bg-[#101a14]/70 px-4 py-6 backdrop-blur-sm sm:place-items-center sm:px-6">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="external-source-heading"
+        aria-describedby="external-source-description"
+        className="m-auto w-full max-w-2xl rounded-[2rem] border border-white/20 bg-[#f8f6ef] p-5 text-[#17211b] shadow-[0_30px_100px_rgba(8,20,12,0.35)] sm:p-8"
+      >
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#47795b]">Before you leave Opportunity Map</p>
+        <h2 id="external-source-heading" className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Confirm this is still the right route.</h2>
+        <p id="external-source-description" className="mt-3 text-sm leading-6 text-[#5f6b63]">
+          You are about to open <strong>{prompt.title}</strong> on an external official site. Opportunity Map currently labels this record as <strong>{prompt.context}</strong>.
+        </p>
+
+        <ol className="mt-6 grid gap-3">
+          {EXTERNAL_SOURCE_CHECKS.map((item, index) => (
+            <li key={item.label} className="grid grid-cols-[2rem_1fr] gap-3 rounded-2xl border border-[#17211b]/10 bg-white p-4">
+              <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-[#e7f2e9] text-xs font-black text-[#315d43]">{index + 1}</span>
+              <span>
+                <span className="block text-sm font-bold">{item.label}</span>
+                <span className="mt-1 block text-sm leading-6 text-[#667169]">{item.prompt}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mt-5 rounded-2xl border border-[#d9b45f]/35 bg-[#fff7e5] p-4 text-sm leading-6 text-[#6c5a2d]">
+          This check does not confirm eligibility, a live funding window, or application acceptance. The official record controls.
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            autoFocus
+            className="min-h-11 rounded-xl border border-[#17211b]/12 bg-white px-5 py-3 text-sm font-bold"
+          >
+            Go back
+          </button>
+          <a
+            href={prompt.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#173d2c] px-5 py-3 text-center text-sm font-bold text-white hover:bg-[#235f40]"
+          >
+            Continue to official source
+          </a>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function OpportunityWorkbench() {
   const [stage, setStage] = useState<Stage>("intake");
   const [method, setMethod] = useState<IntakeMethod>("website");
@@ -501,6 +592,8 @@ export default function OpportunityWorkbench() {
     useState<WorkspaceClientCredentials | null>(null);
   const [durableUnavailable, setDurableUnavailable] = useState(false);
   const [durableSaved, setDurableSaved] = useState(false);
+  const [externalSourcePrompt, setExternalSourcePrompt] =
+    useState<ExternalSourcePrompt | null>(null);
   const durableCredentialsRef = useRef<WorkspaceClientCredentials | null>(null);
   const durableUnavailableRef = useRef(false);
   const durableSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -765,6 +858,7 @@ export default function OpportunityWorkbench() {
     durableGenerationRef.current += 1;
     lastSyncedPayloadRef.current = "";
     setDurableSaved(false);
+    setExternalSourcePrompt(null);
   }
 
   async function analyzeWebsite(event: FormEvent) {
@@ -1328,7 +1422,17 @@ export default function OpportunityWorkbench() {
                         <p className="mt-7 text-xs font-bold uppercase tracking-[0.16em] text-[#acd8ba]">Best next action</p>
                         <p className="mt-3 text-base font-semibold leading-7">{opportunity.nextAction}</p>
                         <div className="mt-8 grid gap-3">
-                          <a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-center text-sm font-bold hover:bg-white/15">Open official source</a>
+                          <button
+                            type="button"
+                            onClick={() => setExternalSourcePrompt({
+                              url: opportunity.sourceUrl,
+                              title: opportunity.title,
+                              context: opportunity.sourceKind,
+                            })}
+                            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-center text-sm font-bold hover:bg-white/15"
+                          >
+                            Open official source
+                          </button>
                           <button type="button" onClick={() => openWorkspace(opportunity)} className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#173d2c] hover:bg-[#edf6ef]">Prepare application workspace</button>
                         </div>
                         <p className="mt-4 text-xs leading-5 text-white/60">{opportunity.sourceLabel} · Retrieved {opportunity.retrievedAt}</p>
@@ -1377,7 +1481,17 @@ export default function OpportunityWorkbench() {
                       <p className="mt-3 text-sm leading-6 text-[#59655e]">{program.objective || "The official source did not provide a program objective."}</p>
                       <div className="mt-5 flex flex-col gap-3 border-t border-[#17211b]/8 pt-4 text-xs text-[#778179] sm:flex-row sm:items-center sm:justify-between">
                         <p>{program.source.sourceName} · Source ID {program.source.sourceId} · Retrieved {displayDate(program.source.retrievedAt)}</p>
-                        <a href={program.source.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[#17211b]/12 bg-white px-4 py-2 font-bold text-[#315d43]">Open official program record</a>
+                        <button
+                          type="button"
+                          onClick={() => setExternalSourcePrompt({
+                            url: program.source.sourceUrl,
+                            title: program.title,
+                            context: "Program context — not open funding",
+                          })}
+                          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[#17211b]/12 bg-white px-4 py-2 font-bold text-[#315d43]"
+                        >
+                          Open official program record
+                        </button>
                       </div>
                     </article>
                   ))}
@@ -1409,7 +1523,17 @@ export default function OpportunityWorkbench() {
                     <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#667169]">What this proves</p>
                     <p className="mt-3 text-sm leading-6 text-[#59655e]">This {historicalAward.source.sourceName} record is historical context only. It is not an open opportunity and does not prove current eligibility.</p>
                     <p className="mt-4 text-xs leading-5 text-[#7a837d]">Period: {displayDate(historicalAward.startDate)} to {displayDate(historicalAward.endDate)}</p>
-                    <a href={historicalAward.source.sourceUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex rounded-xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm font-bold text-[#315d43]">Open official award record</a>
+                    <button
+                      type="button"
+                      onClick={() => setExternalSourcePrompt({
+                        url: historicalAward.source.sourceUrl,
+                        title: historicalAward.title,
+                        context: "Historical award — not open funding",
+                      })}
+                      className="mt-5 inline-flex rounded-xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm font-bold text-[#315d43]"
+                    >
+                      Open official award record
+                    </button>
                     {effectiveSpendingHealth.message && (
                       <div className="mt-4 rounded-xl border border-[#17211b]/8 bg-white px-3 py-3">
                         <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#47795b]">
@@ -1496,7 +1620,17 @@ export default function OpportunityWorkbench() {
                       <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#acd8ba]">Best next action</p>
                       <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-white/90">{selectedOpportunity.nextAction}</p>
                     </div>
-                    <a href={selectedOpportunity.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#173d2c] transition hover:bg-[#edf6ef] sm:mt-0">Review official instructions</a>
+                    <button
+                      type="button"
+                      onClick={() => setExternalSourcePrompt({
+                        url: selectedOpportunity.sourceUrl,
+                        title: selectedOpportunity.title,
+                        context: selectedOpportunity.sourceKind,
+                      })}
+                      className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#173d2c] transition hover:bg-[#edf6ef] sm:mt-0"
+                    >
+                      Review official instructions
+                    </button>
                   </div>
                 </div>
 
@@ -1576,6 +1710,13 @@ export default function OpportunityWorkbench() {
               </aside>
             </div>
           </section>
+        )}
+
+        {externalSourcePrompt && (
+          <ExternalSourceConfirmation
+            prompt={externalSourcePrompt}
+            onClose={() => setExternalSourcePrompt(null)}
+          />
         )}
 
         <footer className="mt-16 flex flex-col gap-2 border-t border-[#17211b]/10 pt-5 text-xs text-[#68736c] sm:flex-row sm:items-center sm:justify-between">
