@@ -75,6 +75,9 @@ export function evaluateEligibility(company: CompanyProfile, opportunity: Opport
   listCheck("clearance", company.requiredClearances, requirements.clearances, "clearances");
   listCheck("certification", company.certifications, requirements.certifications, "certifications");
   listCheck("geography", company.operatingGeographies, requirements.allowedGeographies, "geography");
+  for (const field of requirements.unverifiedCriticalFields ?? []) {
+    checks.push({ field, state: "unknown", detail: `${field} is not verified from the source record` });
+  }
   return checks;
 }
 
