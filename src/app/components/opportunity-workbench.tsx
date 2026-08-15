@@ -29,6 +29,7 @@ import {
   setChecklistItem,
   type WorkspaceState,
 } from "@/lib/workspace-state";
+import { ProgressRail, TaskRows } from "./product-primitives";
 import ResourceDashboard from "./resource-dashboard";
 
 type Stage = "intake" | "review" | "results" | "workspace";
@@ -401,7 +402,7 @@ function AppHeader({
 }) {
   const saveContent = SAVE_MODE_CONTENT[saveMode];
   return (
-    <header className="sticky top-0 z-30 border-b border-[#0a1930]/10 bg-[#f5f8fc]/92 backdrop-blur-xl">
+    <header className="app-header sticky top-0 z-30 border-b border-[#0a1930]/10 backdrop-blur-xl">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-8 lg:px-12">
         <div className="flex min-w-0 items-center gap-3">
           <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#06275c] text-xs font-black tracking-[-0.04em] text-white shadow-[0_8px_24px_rgba(23,61,44,0.18)]">GR</span>
@@ -1127,29 +1128,21 @@ export default function OpportunityWorkbench() {
     <main className="app-shell min-h-screen overflow-x-hidden text-[#0a1930]">
       <AppHeader onReset={resetWorkspace} saveMode={saveMode} />
       <div className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-8 sm:pb-20 sm:pt-7 lg:px-12">
-        <StepRail stage={stage} />
+        {stage !== "intake" && <StepRail stage={stage} />}
 
         {stage === "intake" && (
-          <section className="pt-10 lg:pt-14">
-            <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
-              <div className="lg:sticky lg:top-28">
+          <section className="intake-hero pt-10 lg:pt-14">
+            <div className="intake-hero-grid grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+              <div className="intake-hero-copy lg:sticky lg:top-28">
                 <h1 className="max-w-xl text-balance text-4xl font-semibold leading-[1.02] tracking-[-0.05em] sm:text-5xl">
                   Find the right government resources for your startup.
                 </h1>
-                <p className="mt-5 max-w-xl text-base leading-7 text-[#5f6f84]">
-                  Add what you already have. We’ll turn it into a profile, ask only what is missing, and show the strongest defensible routes.
-                </p>
-
-                <div className="mt-8 max-w-xl border-l-2 border-[#06275c]/20 pl-5">
-                  <ul className="grid gap-3 text-sm leading-6 text-[#5f6f84]">
-                    <li>Official sources stay attached to every result.</li>
-                    <li>Unknown facts stay unknown until you confirm them.</li>
-                    <li>Historical awards never appear as open funding.</li>
-                  </ul>
+                <div className="mt-6">
+                  <StepRail stage="intake" />
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-[#0a1930]/10 bg-white/80 p-5 shadow-[0_22px_70px_rgba(23,33,27,0.08)] sm:p-6">
+              <div className="intake-panel p-5 sm:p-6">
                 <form onSubmit={continueIntake}>
                   <label htmlFor="website-url" className="block text-sm font-bold text-[#36475f]">Company website</label>
                   <input
@@ -1246,27 +1239,32 @@ export default function OpportunityWorkbench() {
         {stage === "review" && searchStatus === "loading" && <SearchExperience />}
 
         {stage === "review" && searchStatus !== "loading" && reviewMode === "questions" && currentReviewQuestion && (
-          <section className="mx-auto max-w-2xl pt-12 sm:pt-16">
-            <p className="text-sm font-semibold text-[#68778b]">{reviewQuestionIndex + 1} of {reviewQuestionKeys.length}</p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">{currentReviewQuestion.label}</h1>
-            <p className="mt-4 max-w-xl text-base leading-7 text-[#5f6f84]">{currentReviewQuestion.why}</p>
-            <div className="mt-8 rounded-2xl border border-[#0a1930]/10 bg-white p-5 shadow-[0_18px_50px_rgba(6,39,92,0.06)] sm:p-7">
-              <Field
-                label={currentReviewQuestion.label}
-                value={String(profile[currentReviewQuestion.key] ?? "")}
-                onChange={(value) => updateProfile(currentReviewQuestion.key, value)}
-                placeholder={currentReviewQuestion.placeholder}
-                multiline={currentReviewQuestion.multiline}
-                status={isSupportedProfileValue(profile[currentReviewQuestion.key]) ? "captured" : "missing"}
-              />
-              <div className="mt-6 flex items-center justify-between gap-3">
+          <section className="approval-flow mx-auto max-w-2xl pt-12 sm:pt-16">
+            <div className="approval-flow-heading">
+              <p>{reviewQuestionIndex + 1} of {reviewQuestionKeys.length}</p>
+              <h1>{currentReviewQuestion.label}</h1>
+              <p>{currentReviewQuestion.why}</p>
+            </div>
+            <div className="approval-question-card">
+              <div className="approval-question-body">
+                <Field
+                  label={currentReviewQuestion.label}
+                  value={String(profile[currentReviewQuestion.key] ?? "")}
+                  onChange={(value) => updateProfile(currentReviewQuestion.key, value)}
+                  placeholder={currentReviewQuestion.placeholder}
+                  multiline={currentReviewQuestion.multiline}
+                  status={isSupportedProfileValue(profile[currentReviewQuestion.key]) ? "captured" : "missing"}
+                />
+              </div>
+              <div className="approval-question-footer">
                 <button
                   type="button"
                   onClick={() => reviewQuestionIndex > 0 ? setReviewQuestionIndex((index) => index - 1) : setStage("intake")}
-                  className="min-h-11 rounded-xl border border-[#0a1930]/12 bg-white px-5 py-3 text-sm font-bold text-[#06275c]"
+                  className="approval-back-button"
                 >
                   Back
                 </button>
+                <ProgressRail current={reviewQuestionIndex} total={reviewQuestionKeys.length} />
                 <button
                   type="button"
                   disabled={!isSupportedProfileValue(profile[currentReviewQuestion.key])}
@@ -1274,9 +1272,9 @@ export default function OpportunityWorkbench() {
                     if (reviewQuestionIndex === reviewQuestionKeys.length - 1) setReviewMode("confirm");
                     else setReviewQuestionIndex((index) => index + 1);
                   }}
-                  className="min-h-11 rounded-xl bg-[#06275c] px-6 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="approval-continue-button"
                 >
-                  Continue
+                  {reviewQuestionIndex === reviewQuestionKeys.length - 1 ? "Review profile" : "Continue"}
                 </button>
               </div>
             </div>
@@ -1541,21 +1539,20 @@ export default function OpportunityWorkbench() {
                       <p className="mt-2 text-sm font-bold leading-5 text-[#253d2e]">{nextChecklistItem.label}</p>
                     </div>
                   )}
-                  <div className="mt-5 grid gap-3">
-                    {INITIAL_CHECKLIST.map((item) => (
-                      <label key={item.id} className={`flex min-h-16 cursor-pointer gap-3 rounded-2xl border p-4 transition ${activeChecklist[item.id] ? "border-[#77ae89]/40 bg-[#edf6ef]" : "border-[#0a1930]/10 bg-white hover:border-[#77ae89]/45"}`}>
-                        <input type="checkbox" checked={Boolean(activeChecklist[item.id])} onChange={(event) => {
+                  <div className="mt-5">
+                    <TaskRows
+                      items={INITIAL_CHECKLIST}
+                      checked={activeChecklist}
+                      onChange={(itemId, checked) => {
                           if (!selectedOpportunityId) return;
                           setChecklistByOpportunity((current) => setChecklistItem(
                             { version: 2, selectedOpportunityId, checklistByOpportunity: current },
                             selectedOpportunityId,
-                            item.id,
-                            event.target.checked,
+                            itemId,
+                            checked,
                           ).checklistByOpportunity);
-                        }} className="mt-0.5 h-5 w-5 shrink-0 accent-[#0968d8]" />
-                        <span><span className={`block text-sm font-bold leading-5 ${activeChecklist[item.id] ? "text-[#084b9a] line-through" : ""}`}>{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#718095]">{item.detail}</span></span>
-                      </label>
-                    ))}
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -1576,9 +1573,8 @@ export default function OpportunityWorkbench() {
           />
         )}
 
-        <footer className="mt-16 flex flex-col gap-2 border-t border-[#0a1930]/10 pt-5 text-xs text-[#68736c] sm:flex-row sm:items-center sm:justify-between">
+        <footer className="mt-28 border-t border-[#0a1930]/10 pt-5 text-xs text-[#68736c] sm:mt-36">
           <p>Research aid only. Verify eligibility and instructions on the official source.</p>
-          <p>Current opportunities, program routes, and historical awards are labeled separately.</p>
         </footer>
       </div>
     </main>

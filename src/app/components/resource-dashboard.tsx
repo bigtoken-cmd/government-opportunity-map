@@ -5,6 +5,12 @@ import type {
   CompanyProfile,
   RankedOpportunityCard,
 } from "./opportunity-workbench";
+import {
+  ContextCard,
+  SignalMeter,
+  TaskRows,
+  type TaskRowItem,
+} from "./product-primitives";
 
 type DashboardTab = "opportunities" | "next-steps" | "profile";
 type SortMode = "relevance" | "amount" | "deadline";
@@ -16,6 +22,28 @@ const decisionLabels: Record<RankedOpportunityCard["decision"], string> = {
   Watch: "Watch",
   Skip: "Skip",
 };
+
+const applicationTasks: ReadonlyArray<TaskRowItem> = [
+  { id: "registrations", label: "Confirm SAM.gov registration and UEI", detail: "Required before many federal submissions." },
+  { id: "eligibility", label: "Verify applicant type and eligibility", detail: "Check ownership, location, size, and notice-specific rules." },
+  { id: "notice", label: "Read the current official notice", detail: "Confirm that the exact record is current and accepting applications." },
+  { id: "scope", label: "Draft the project scope", detail: "Tie the company’s work to the public-purpose problem in the notice." },
+  { id: "budget", label: "Build the allowed-cost budget", detail: "Include only costs permitted by the selected notice." },
+  { id: "package", label: "Gather the official application package", detail: "Leave unsupported answers blank until the founder supplies them." },
+];
+
+function signalLevel(score: number) {
+  if (score >= 75) return 3;
+  if (score >= 55) return 2;
+  return 1;
+}
+
+function signalTone(decision: RankedOpportunityCard["decision"]): "blue" | "green" | "amber" | "violet" {
+  if (decision === "Pursue now") return "green";
+  if (decision === "Verify first") return "amber";
+  if (decision === "Partner-dependent") return "violet";
+  return "blue";
+}
 
 function amountValue(value: string) {
   const amounts = value.match(/[\d,]+/g)?.map((item) => Number(item.replaceAll(",", ""))) ?? [];
@@ -191,40 +219,48 @@ export default function ResourceDashboard({
                           </dl>
                           <p className="card-next-action"><strong>Next step:</strong> {opportunity.nextAction}</p>
                         </div>
-                        <div className="opportunity-actions">
-                          <button type="button" onClick={() => toggleSaved(opportunity.id)} className={saved ? "saved-button" : "save-button"}>
-                            {saved ? "Saved" : "Save to my list"}
-                          </button>
-                          <button type="button" aria-expanded={expanded} onClick={() => toggleExpanded(opportunity.id)} className="expand-button">
-                            {expanded ? "Show less" : "Expand"} <Chevron expanded={expanded} />
-                          </button>
-                        </div>
                       </div>
 
                       {expanded && (
                         <div className="opportunity-details">
-                          <div>
-                            <h3>Why it matches</h3>
+                          <div className="opportunity-context-grid">
+                            <ContextCard title="Why it matches" meta={`${Math.min(opportunity.reasons.length, 3)} signals`}>
                             <ul>{opportunity.reasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-                          </div>
-                          <div>
-                            <h3>What’s iffy</h3>
+                            </ContextCard>
+                            <ContextCard title="Verify before applying" meta={`${Math.min(opportunity.concerns.length, 3)} checks`}>
                             <ul>{opportunity.concerns.slice(0, 3).map((concern) => <li key={concern}>{concern}</li>)}</ul>
+                            </ContextCard>
+                            <ContextCard
+                              title="Recommended next action"
+                              meta="Founder action"
+                              wide
+                              footer={(
+                                <>
+                                  <span>{opportunity.sourceLabel} · Retrieved {opportunity.retrievedAt}</span>
+                                  <SourceButton onClick={() => onOpenSource(opportunity)} />
+                                </>
+                              )}
+                            >
+                              <p>{opportunity.nextAction}</p>
+                            </ContextCard>
                           </div>
-                          <div>
-                            <h3>What to do next</h3>
-                            <p>{opportunity.nextAction}</p>
-                          </div>
-                          <div>
-                            <h3>Past proof</h3>
-                            <p>No opportunity-specific historical award is attached yet. Historical evidence never proves current eligibility.</p>
-                          </div>
-                          <footer>
-                            <span>{opportunity.sourceLabel} · Retrieved {opportunity.retrievedAt}</span>
-                            <SourceButton onClick={() => onOpenSource(opportunity)} />
-                          </footer>
                         </div>
                       )}
+
+                      <div className="recommendation-footer">
+                        <span className="recommendation-signal">
+                          <SignalMeter level={signalLevel(opportunity.score)} tone={signalTone(opportunity.decision)} />
+                          <span><strong>{opportunity.score}/100</strong> evidence · {opportunity.fitTier}</span>
+                        </span>
+                        <span className="recommendation-actions">
+                          <button type="button" onClick={() => toggleSaved(opportunity.id)} className={saved ? "saved-button" : "save-button"}>
+                            {saved ? "Saved" : "Save to my list"}
+                          </button>
+                          <button type="button" aria-expanded={expanded} onClick={() => toggleExpanded(opportunity.id)} className="expand-button">
+                            {expanded ? "Show less" : "View evidence"} <Chevron expanded={expanded} />
+                          </button>
+                        </span>
+                      </div>
                     </article>
                   );
                 })}
@@ -263,32 +299,21 @@ export default function ResourceDashboard({
               </div>
               {savedMatches.map((opportunity) => {
                 const checks = checklistByOpportunity[opportunity.id] ?? {};
-                const checklist = [
-                  ["eligibility", "Verify applicant type and eligibility"],
-                  ["notice", "Read the current official notice"],
-                  ["registrations", "Confirm SAM.gov registration and UEI"],
-                  ["scope", "Draft the project scope"],
-                  ["budget", "Build the allowed-cost budget"],
-                  ["package", "Gather the official application package"],
-                ] as const;
-                const completed = checklist.filter(([id]) => checks[id]).length;
+                const completed = applicationTasks.filter((item) => checks[item.id]).length;
                 return (
                   <article key={opportunity.id} className="saved-opportunity">
                     <header>
                       <div>
-                        <span>{completed} of {checklist.length} complete · {opportunity.deadline}</span>
+                        <span>{completed} of {applicationTasks.length} complete · {opportunity.deadline}</span>
                         <h3>{opportunity.title}</h3>
                       </div>
                       <button type="button" onClick={() => onOpenWorkspace(opportunity)} className="secondary-button">Open workspace</button>
                     </header>
-                    <div className="saved-checklist">
-                      {checklist.map(([id, label]) => (
-                        <label key={id}>
-                          <input type="checkbox" checked={Boolean(checks[id])} onChange={(event) => onChecklistChange(opportunity.id, id, event.target.checked)} />
-                          <span>{label}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <TaskRows
+                      items={applicationTasks}
+                      checked={checks}
+                      onChange={(itemId, checked) => onChecklistChange(opportunity.id, itemId, checked)}
+                    />
                     <p className="document-note"><strong>Documents:</strong> Check official package. Notice-specific requirements have not been extracted yet.</p>
                   </article>
                 );
