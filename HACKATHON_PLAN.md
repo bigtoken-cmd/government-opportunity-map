@@ -13,7 +13,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 | SBIR bulk retrieval | Implemented / Blocked | Conditional monthly ingestion, streaming normalization, compact historical lookup, and honest empty fallback are tested. Deployment remains Blocked because only an in-memory store exists and the Worker has no scheduled hook or route injection. |
 | Model integration | Verified | GPT-5.6 Luna (`gpt-5.6-luna`) is consent-gated and server-only for website, manual, and extracted/pasted PDF evidence. Strict sanitization, schema/evidence validation, timeout/error fallback, `store: false`, the shared disclosure, and route size bounds are tested; real credentialed calls completed on all three paths without exposing the secret. |
 | Persistence logic | Implemented | Opaque workspace credentials, token hashing, bounded persisted fields, opportunity-scoped persistence logic, a prepared-statement D1 adapter/migration, runtime binding detection, and the client fallback contract are tested. |
-| Durable D1 deployment | Verified | `WORKSPACE_DB` is bound, `migrations/0001_workspace.sql` is applied remotely, POST/GET/PUT passed, and a local-copy removal plus hard reload restored checklist and contact state from D1. Production traffic verification remains Planned until merge. |
+| Durable D1 deployment | Verified | `WORKSPACE_DB` is bound, `migrations/0001_workspace.sql` is applied remotely, POST/GET/PUT passed, and local-copy removal plus hard reload restored checklist and contact state from D1 on preview and production traffic. |
 
 ## P0 solution contract
 
@@ -28,7 +28,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 - A model is allowed only for server-side structured extraction of supplied evidence and an optional constrained wording pass.
 - Deterministic code exclusively owns source verification, eligibility, disqualifiers, scores, deadlines, historical totals, and result decisions. A wording pass may not add or change facts, evidence IDs, sources, dates, amounts, scores, eligibility, or decisions; it falls back to deterministic wording.
 - **Implemented:** GPT-5.6 Luna (`gpt-5.6-luna`) is the single app API model for server-side extraction. Every call requires explicit external-processing consent, removes obvious submitted credential values, sends `store: false`, accepts only a strict completed response shape, and falls back deterministically.
-- `OPENAI_API_KEY` is server-only: `.env.local` locally and a Cloudflare secret in production. Never use `NEXT_PUBLIC_*`, print, read, store, or commit a value. **Verified:** on the P0 preview, the binding name exists, and consented non-sensitive website, manual, and PDF calls returned completed `gpt-5.6-luna` metadata without reading or logging the value.
+- `OPENAI_API_KEY` is server-only: `.env.local` locally and a Cloudflare secret in production. Never use `NEXT_PUBLIC_*`, print, read, store, or commit a value. **Verified:** the deployed binding name exists; consented non-sensitive website, manual, and PDF preview calls plus a production manual call returned completed `gpt-5.6-luna` metadata without reading or logging the value.
 - Raw website, manual, and PDF evidence is not logged or persisted server-side. **Implemented:** the founder-facing UI shows the shared OpenAI disclosure, requires explicit consent, and sends `externalProcessingConsent: true`; manual/PDF provider failure returns an editable deterministic profile with honest status.
 
 ## Four official source roles and status
@@ -54,7 +54,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 - **Implemented:** the workspace state is versioned and opportunity-scoped; source-backed fields can prefill supported application information while unsupported fields remain blank founder questions. Direct government-form submission is not allowed.
 - **Implemented:** founder contact remains outside matching, opaque workspace credentials are isolated, stores receive token hashes only, and persistence rejects prototype-polluting checklist keys.
 - **Implemented:** the UI stores opaque credentials locally, restores durable checklist/contact state, creates or updates through `/api/workspace`, removes invalid credentials on 401, stops retrying after 503, and labels device-only versus durable save mode honestly. The route selects the D1 prepared-statement store only when `WORKSPACE_DB` exists.
-- **Verified:** on the P0 preview, the D1 resource is bound as `WORKSPACE_DB`, the migration is applied, and browser durable recovery is evidenced. Production traffic verification remains Planned until the reviewed branch is merged and deployed.
+- **Verified:** `WORKSPACE_DB` is bound, the migration is applied, and browser durable recovery passed on both the P0 preview and production traffic.
 - **Implemented:** a deterministic explanation object carries matched groups, eligibility checks, reason, and source provenance. **Planned:** optional constrained model wording, with deterministic fallback.
 
 ## Verification gate
@@ -66,10 +66,10 @@ This is the authoritative solution, decision, and checklist document. Status lab
 | Source-state honesty | Verified | Tests distinguish valid empty, malformed, cached, cached-fallback, unavailable, and source-role behavior. |
 | Local/cached/live fallback | Implemented | Grants.gov and USAspending preserve live/fallback states; Assistance Listings and SBIR scheduled ingestors preserve last-valid official snapshots without calling them live. |
 | Route contracts | Verified | Search and workspace response shapes are frozen; website compatibility is preserved, manual/PDF intake enforces consent and byte bounds, and focused tests cover extraction fallback, client bearer credentials, D1 behavior, and binding selection. |
-| Browser and reload matrix | Verified | Direct URL, soft navigation, hard reload, live/cached-fallback labels, 1440px desktop, 430px mobile with no horizontal overflow, consent, five profiles, source confirmation, and D1 checklist/contact recovery were observed. |
-| Cloudflare production verification | Planned | Preview deployment, D1, secret-name presence, live model/source calls, and browser matrix are verified. Merge, production traffic deployment, and repeated production smoke remain. |
+| Browser and reload matrix | Verified | Direct URL, soft navigation, hard reload, live/cached-fallback labels, 1440px desktop, 430px mobile with no horizontal overflow, consent, five profiles, source confirmation, and D1 checklist/contact recovery were observed; critical smoke paths were repeated on production. |
+| Cloudflare production verification | Verified | The reviewed work and two screenshot-driven dialog-focus fixes were merged through PRs #5, #6, and #7. Worker version `079997a8-2adb-48dc-a7fc-2f5bd267deb5` serves 100% of production traffic, and the production smoke matrix passed. |
 | Combined-main automated verification | Verified | The consolidated backend tree passed two consecutive 77/77 suites plus ESLint, TypeScript, production build, and diff check. |
-| P0 exit | Blocked | Automated, preview browser, D1, secret-name, live-source, and credentialed model verification are complete. Production smoke remains Planned; scheduled Assistance Listings/SBIR stores remain Blocked on missing persistent-store and Worker-scheduler architecture. |
+| P0 exit | Blocked | Automated, preview, production browser, D1, secret-name, live-source, and credentialed model verification are complete. Scheduled Assistance Listings/SBIR stores remain Blocked on missing persistent-store, search-route injection, and Worker-scheduler architecture. |
 
 ## Remaining P0 handoff
 
@@ -77,7 +77,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 
 - **Implemented:** shared disclosure/consent, manual/PDF route wiring, separate program-context presentation, and durable-workspace client/local fallback.
 - **Verified:** on the P0 preview, `WORKSPACE_DB`, the remote migration, server-only secret-name presence, consented Luna paths, and the browser/reload matrix.
-- **Planned:** merge and deploy the reviewed P0 version to production traffic, then repeat production smoke checks.
+- **Verified:** PRs #5, #6, and #7 are merged; Worker version `079997a8-2adb-48dc-a7fc-2f5bd267deb5` serves 100% of production traffic, and production smoke passed.
 - **Blocked:** persistent Assistance Listings/SBIR stores, search-route injection, and a Cloudflare scheduled entry point require architecture and source-owner agreement; this is not a configuration-only task.
 
 ### Lincoln / integration
@@ -97,9 +97,11 @@ This is the authoritative solution, decision, and checklist document. Status lab
 - **Verified:** live Grants.gov counts were visibly labeled for each positive profile; Assistance Listings remained separate and visibly `cached-fallback`, historical awards were not substituted, and current opportunities retained official source links and retrieval dates.
 - **Verified:** the 1440px desktop and 430px mobile Chrome paths covered direct visit, soft navigation, and hard reload. Mobile document width equaled viewport width with no horizontal overflow.
 - **Verified:** official-record links now open a five-check confirmation dialog before any external tab. The dialog covers route type, record status, company-versus-PI eligibility, geography restrictions, and continued goal fit. The browser opened no tab before confirmation; after confirmation, the Grants.gov detail page resolved.
-- **Verified:** the exact final gate passed: two consecutive 93/93 suites, ESLint, TypeScript, production build, and `git diff --check`.
+- **Verified:** the exact final gate passed, and passed again after the screenshot-driven focus fixes: two consecutive 93/93 suites, ESLint, TypeScript, production build, and `git diff --check`.
+- **Verified:** PR #5 merged as `a3be94befa6ab2362277050902964d46e6e8d691`; mobile confirmation follow-ups PR #6 and PR #7 merged as `272e7611f9941f03024688e35f9499e40c379e8a` and `65593ee58eba78fff387762befee325ce775ec87`. Cloudflare deployment `f9020150-5229-4d07-806d-339eb6905fd6` routes 100% of production traffic to Worker version `079997a8-2adb-48dc-a7fc-2f5bd267deb5`.
+- **Verified:** production smoke at `https://government-opportunity-map.bigtoken.workers.dev/` covered direct load, a five-route manufacturing map, the honest consumer no-match, durable D1 recovery after removing the local workspace/contact copy, completed Luna manual metadata, hard reload, and no captured runtime errors.
+- **Verified:** at 430px, production document width remained 430px. The external-source dialog opened at its heading with all five checks, received focus, opened no external tab before confirmation, and restored focus to `Open official source` after `Go back`.
 - **Blocked:** scheduled Assistance Listings/SBIR deployment is not present. Search does not receive deployed stores, only in-memory store implementations exist, and the OpenNext Worker exposes no scheduled hook. Fallback labels are therefore the expected honest deployed state.
-- **Planned:** merge the reviewed branch, deploy that merged version to production traffic, then repeat the production smoke matrix and record it separately.
 
 ## Deferred until P0 passes twice
 
