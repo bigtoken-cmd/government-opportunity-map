@@ -517,6 +517,8 @@ function ExternalSourceConfirmation({
         aria-modal="true"
         aria-labelledby="external-source-heading"
         aria-describedby="external-source-description"
+        tabIndex={-1}
+        autoFocus
         className="m-auto w-full max-w-2xl rounded-[2rem] border border-white/20 bg-[#f8f6ef] p-5 text-[#17211b] shadow-[0_30px_100px_rgba(8,20,12,0.35)] sm:p-8"
       >
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#47795b]">Before you leave Opportunity Map</p>
@@ -545,7 +547,6 @@ function ExternalSourceConfirmation({
           <button
             type="button"
             onClick={onClose}
-            autoFocus
             className="min-h-11 rounded-xl border border-[#17211b]/12 bg-white px-5 py-3 text-sm font-bold"
           >
             Go back
