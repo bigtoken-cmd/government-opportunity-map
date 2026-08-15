@@ -159,6 +159,17 @@ function uniqueItems(items: readonly SemanticEvidenceItem[]) {
 function rawCompanyEvidence(company: CompanyProfile): SemanticEvidenceItem[] {
   const items: SemanticEvidenceItem[] = sentences(company.description, 8)
     .map((text, index) => ({ id: `company-description-${index + 1}`, text }));
+  for (const [field, value] of Object.entries({
+    industry: company.founderFacts?.industry,
+    technology: company.founderFacts?.technology,
+    customers: company.founderFacts?.customers,
+    researchActivities: company.founderFacts?.researchActivities,
+    useOfFunds: company.founderFacts?.useOfFunds,
+    productStage: company.founderFacts?.productStage,
+    researchStage: company.founderFacts?.researchStage,
+  })) {
+    if (value) items.push({ id: `company-${field}`, text: `${field}: ${value.slice(0, 500)}` });
+  }
   const groups: Array<[string, readonly string[]]> = [
     ["mission", company.missionAreas],
     ["exact", company.exactTerms],
@@ -171,13 +182,6 @@ function rawCompanyEvidence(company: CompanyProfile): SemanticEvidenceItem[] {
       id: `company-${group}-${index + 1}`,
       text: value.slice(0, 500),
     }));
-  }
-  for (const [field, value] of Object.entries({
-    useOfFunds: company.founderFacts?.useOfFunds,
-    productStage: company.founderFacts?.productStage,
-    researchStage: company.founderFacts?.researchStage,
-  })) {
-    if (value) items.push({ id: `company-${field}`, text: `${field}: ${value.slice(0, 500)}` });
   }
   return uniqueItems(items).slice(0, 24);
 }

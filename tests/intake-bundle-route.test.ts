@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import JSZip from "jszip";
 import { createEvidenceBundlePost } from "../src/lib/intake/evidence-bundle-route-handler";
+import { textPdfBytes } from "./fixtures/text-pdf";
 
 function lunaResponse(claims: unknown) {
   return new Response(JSON.stringify({
@@ -124,6 +125,9 @@ test("one bounded bundle combines website, manual, PDF, DOCX, and PPTX provenanc
   assert.equal(body.profile.applicantType, "U.S. for-profit small business");
   assert.equal(body.profile.capitalNeed, "$500,000");
   assert.equal(body.profile.technology, "membrane sensor platform");
+  assert.match(body.profile.description, /utility analytics/);
+  assert.match(body.profile.description, /12 employees/);
+  assert.match(body.profile.description, /Funding need: \$500,000/);
   assert.deepEqual(
     Object.fromEntries(body.evidence.map((claim: { field: string; sourceId: string }) => [claim.field, claim.sourceId])),
     {
@@ -216,4 +220,54 @@ test("an unreadable supported document returns an honest paste-text fallback", a
   assert.equal(body.sources[0].extractionStatus, "needs-paste");
   assert.match(body.sources[0].message, /Paste its text/);
   assert.match(body.fallback, /plain-language company description/);
+});
+
+test("file-only PDF intake extracts embedded text and canonicalizes extracted location", async () => {
+  let providerCalls = 0;
+  const post = createEvidenceBundlePost({
+    luna: {
+      apiKey: "test-only-key",
+      fetcher: async () => {
+        providerCalls += 1;
+        return lunaResponse([
+          {
+            field: "companyName",
+            value: "Northstar",
+            evidenceExcerpt: "Northstar builds advanced manufacturing systems in slc.",
+          },
+          {
+            field: "technology",
+            value: "advanced manufacturing systems",
+            evidenceExcerpt: "advanced manufacturing systems",
+          },
+          {
+            field: "location",
+            value: "slc",
+            evidenceExcerpt: "in slc",
+          },
+        ]);
+      },
+    },
+  });
+  const form = new FormData();
+  form.set("externalProcessingConsent", "true");
+  form.append("files", new File(
+    [textPdfBytes("Northstar builds advanced manufacturing systems in slc.")],
+    "northstar.pdf",
+    { type: "application/pdf" },
+  ));
+
+  const response = await post(request(form));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(providerCalls, 1);
+  assert.equal(body.sources[0].extractionStatus, "extracted");
+  assert.equal(body.sources[0].textOrigin, "server-extracted");
+  assert.equal(body.profile.companyName, "Northstar");
+  assert.equal(body.profile.industry, "Advanced manufacturing");
+  assert.equal(body.profile.technology, "advanced manufacturing systems");
+  assert.equal(body.profile.location, "Salt Lake City, UT");
+  assert.equal(body.profileFieldOrigins.location.origin, "normalized");
+  assert.equal(body.profileFieldOrigins.location.originalValue, "slc");
 });

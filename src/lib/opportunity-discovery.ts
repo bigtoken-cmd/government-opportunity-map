@@ -270,7 +270,7 @@ export function selectOpportunityCandidates(
   }));
   const recordById = new Map(uniqueRecords.map((record) => [record.id, record]));
   return ranker(company, [...opportunityById.values()])
-    .filter((match) => match.decision !== "Skip" && match.score.total >= 35)
+    .filter((match) => match.decision !== "Skip")
     .slice(0, limit)
     .flatMap((match) => {
       const record = recordById.get(match.opportunityId);
@@ -294,7 +294,7 @@ export function discoverOpportunities(
     records.filter((record): record is HistoricalAwardRecord => record.kind === "historical_award"),
   );
   const qualifyingMatches = ranker(company, opportunities)
-    .filter((match) => match.decision !== "Skip" && match.score.total >= 35);
+    .filter((match) => match.decision !== "Skip");
   const recommendations = qualifyingMatches
     .slice(0, 20)
     .flatMap((match): DiscoveryRecommendation[] => {

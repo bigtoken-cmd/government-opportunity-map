@@ -10,7 +10,10 @@ import {
 } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 import { pickSupportedEvidenceProfile } from "@/lib/intake/evidence-profile";
-import { createEvidenceOnlyFounderProfile } from "@/lib/intake/profile-normalization";
+import {
+  createEvidenceOnlyFounderProfile,
+  type FounderProfileInput,
+} from "@/lib/intake/profile-normalization";
 import type { DiscoveryRecommendation } from "@/lib/opportunity-discovery";
 import type {
   GovernmentSourceSearchResult,
@@ -40,36 +43,22 @@ type SaveMode = "saving" | "device-only" | "durable";
 type ReviewMode = "required" | "optional" | "confirm" | "save";
 
 type ProfileFieldOrigin = {
-  origin: "extracted" | "unknown" | "founder-confirmed";
+  origin: "extracted" | "normalized" | "unknown" | "founder-confirmed";
   sourceId?: string;
   sourceIds?: readonly string[];
   sourceTextOrigin?: string;
   sourceTextOrigins?: readonly string[];
+  originalValue?: string;
 };
 
 type ProfileFieldOrigins = Partial<Record<keyof CompanyProfile, ProfileFieldOrigin>>;
 
-export type CompanyProfile = {
-  companyName: string;
+type SearchProfile = Required<Omit<FounderProfileInput, "id">>;
+
+export type CompanyProfile = SearchProfile & {
   founderName: string;
   founderRole: string;
   founderEmail: string;
-  website: string;
-  description: string;
-  industry: string;
-  technology: string;
-  location: string;
-  employees: string;
-  revenue: string;
-  capitalRaised: string;
-  capitalNeed: string;
-  useOfFunds: string;
-  customers: string;
-  researchActivities: string;
-  applicantType: string;
-  ownership: string;
-  samStatus: string;
-  uei: string;
 };
 
 type OpportunityCard = {
@@ -171,7 +160,7 @@ const REQUIRED_PROFILE_QUESTIONS: ProfileFieldDefinition[] = [
   { key: "industry", label: "Industry", question: "Which industry best describes your business?", why: "Choose the closest match. Select Other if your industry is not listed.", placeholder: "Select an industry", options: ["Agriculture and food", "Aerospace and defense", "Automotive and mobility", "Biotechnology and life sciences", "Climate and clean energy", "Construction and real estate", "Consumer products and retail", "Cybersecurity", "Education", "Energy and utilities", "Financial services", "Government and civic technology", "Healthcare and medical devices", "Industrial and advanced manufacturing", "Information technology and software", "Logistics and supply chain", "Media and entertainment", "Mining and natural resources", "Professional and business services", "Robotics and automation", "Semiconductors and electronics", "Telecommunications", "Transportation and infrastructure", "Water and environmental services", "Other"], optionDisplay: "dropdown" },
   { key: "technology", label: "Core technology or method", question: "What is the main technology or method behind what you offer?", why: "Think about the software, equipment, scientific method, or technical process that makes it work.", placeholder: "e.g., computer vision, membrane filtration, industrial robotics, or a specialized service method" },
   { key: "location", label: "Company location", question: "Where is the company based?", why: "Some routes have state, domestic, or place-of-performance rules.", placeholder: "City, state, and country", autoComplete: "address-level2" },
-  { key: "applicantType", label: "Organization type", question: "What type of organization are you?", why: "Government programs often limit which types of organizations can apply.", placeholder: "Select an organization type", options: ["For-profit business", "Nonprofit organization", "University or research institution", "State, local, or tribal government", "Individual", "Other organization"] },
+  { key: "applicantType", label: "Organization type", question: "What type of organization are you?", why: "Government programs often limit which types of organizations can apply.", placeholder: "Select an organization type", options: ["For-profit business", "Nonprofit organization", "University or research institution", "State government", "Local government", "Tribal government or organization", "Individual", "Other organization"] },
   { key: "ownership", label: "Ownership and control", question: "How is the company owned and controlled?", why: "Select all that apply. Some small-business and research programs have ownership requirements.", placeholder: "Select ownership details", options: ["Founder-owned", "U.S. citizen or permanent-resident owned and controlled", "Woman-owned", "Minority-owned", "Veteran-owned", "Venture-backed or institutionally owned", "Subsidiary or parent-owned", "Not sure"], multipleOptions: true },
   { key: "useOfFunds", label: "Use of funds", question: "What will the funds be used for?", why: "A practical use of funds helps us find programs that support the work you actually want to do.", placeholder: "e.g., research, prototyping, pilot testing, equipment, or commercialization", multiline: true },
 ];
@@ -179,11 +168,17 @@ const REQUIRED_PROFILE_QUESTIONS: ProfileFieldDefinition[] = [
 const OPTIONAL_PROFILE_FIELDS: ProfileFieldDefinition[] = [
   { key: "companyName", label: "Company name", question: "Company name", why: "", placeholder: "Company name", autoComplete: "organization" },
   { key: "website", label: "Website", question: "Company website", why: "", placeholder: "https://yourcompany.com", type: "url", autoComplete: "url" },
+  { key: "yearFounded", label: "Year founded", question: "Year founded", why: "", placeholder: "2021" },
   { key: "employees", label: "Team size", question: "Team size", why: "", placeholder: "Select a team size", options: ["1–2 people", "3–10 people", "11–50 people", "51–250 people", "251 or more people"] },
   { key: "customers", label: "Target customers", question: "Who is the product for?", why: "", placeholder: "e.g., consumers, small businesses, hospitals, or public agencies", multiline: true },
+  { key: "productStage", label: "Product stage", question: "Product stage", why: "", placeholder: "Select a product stage", options: ["Concept", "Prototype", "Pilot", "Commercial product"] },
+  { key: "researchStage", label: "Research stage", question: "Research stage", why: "", placeholder: "Select a research stage", options: ["No formal R&D", "Early research", "Feasibility", "Prototype development", "Validation or field testing"] },
   { key: "capitalNeed", label: "Funding need", question: "Preferred funding range", why: "", placeholder: "e.g., $100,000–$500,000" },
   { key: "revenue", label: "Annual revenue", question: "Annual revenue", why: "", placeholder: "$750,000 last year" },
   { key: "capitalRaised", label: "Capital raised", question: "Capital raised so far", why: "", placeholder: "$1.2 million raised to date" },
+  { key: "legalEntityType", label: "Legal structure", question: "Legal structure", why: "", placeholder: "Select a legal structure", options: ["Sole proprietorship", "Limited liability company (LLC)", "Corporation", "Partnership", "Nonprofit corporation", "Other"] },
+  { key: "smallBusinessStatus", label: "Small-business status", question: "Do you consider the organization a small business?", why: "", placeholder: "Select a status", options: ["Yes", "No", "Not sure"] },
+  { key: "usEntityStatus", label: "U.S. entity status", question: "Is the organization formed in the United States?", why: "", placeholder: "Select a status", options: ["Yes", "No", "Not sure"] },
   { key: "samStatus", label: "SAM.gov status", question: "SAM.gov registration status", why: "", placeholder: "Select a registration status", options: ["Active", "In progress", "Expired", "Not started", "Unsure"], optionLayout: "column-first" },
   { key: "uei", label: "Unique Entity ID (from SAM.gov)", question: "Unique Entity ID (from SAM.gov)", why: "", placeholder: "12-character identifier assigned through SAM.gov" },
 ];
@@ -202,7 +197,7 @@ const OPTIONAL_PROFILE_GROUPS: Array<{
   {
     title: "Company details",
     description: "Helpful context about the business and who it serves.",
-    keys: ["companyName", "website", "employees", "customers"],
+    keys: ["companyName", "website", "yearFounded", "employees", "customers", "productStage", "researchStage"],
   },
   {
     title: "Funding details",
@@ -210,9 +205,9 @@ const OPTIONAL_PROFILE_GROUPS: Array<{
     keys: ["capitalNeed", "revenue", "capitalRaised"],
   },
   {
-    title: "Federal registration",
-    description: "Registration details used later in many federal applications.",
-    keys: ["samStatus", "uei"],
+    title: "Eligibility and federal registration",
+    description: "Organization and registration details used to verify application requirements.",
+    keys: ["legalEntityType", "smallBusinessStatus", "usEntityStatus", "samStatus", "uei"],
   },
 ];
 
@@ -235,7 +230,7 @@ const PROFILE_REVIEW_GROUPS: Array<{
   {
     title: "Company details",
     description: "The core facts used to understand the business and its work.",
-    keys: ["companyName", "website", "description", "industry", "technology", "location", "employees", "customers", "researchActivities"],
+    keys: ["companyName", "website", "description", "industry", "technology", "location", "yearFounded", "employees", "customers", "productStage", "researchStage", "researchActivities"],
   },
   {
     title: "Financing",
@@ -245,7 +240,7 @@ const PROFILE_REVIEW_GROUPS: Array<{
   {
     title: "Eligibility and federal registration",
     description: "Organization and registration details used to check applicant requirements.",
-    keys: ["applicantType", "ownership", "samStatus", "uei"],
+    keys: ["applicantType", "legalEntityType", "ownership", "smallBusinessStatus", "usEntityStatus", "samStatus", "uei"],
   },
 ];
 
@@ -286,6 +281,7 @@ const EMPTY_PROFILE: CompanyProfile = {
   industry: "",
   technology: "",
   location: "",
+  yearFounded: "",
   employees: "",
   revenue: "",
   capitalRaised: "",
@@ -294,7 +290,12 @@ const EMPTY_PROFILE: CompanyProfile = {
   customers: "",
   researchActivities: "",
   applicantType: "",
+  legalEntityType: "",
   ownership: "",
+  productStage: "",
+  researchStage: "",
+  smallBusinessStatus: "",
+  usEntityStatus: "",
   samStatus: "",
   uei: "",
 };
@@ -490,7 +491,7 @@ function normalizedProfileOrigins(
   const origins: ProfileFieldOrigins = {};
   for (const key of Object.keys(profile) as Array<keyof CompanyProfile>) {
     const returned = raw[key];
-    if (returned?.origin === "extracted") {
+    if (returned?.origin === "extracted" || returned?.origin === "normalized") {
       origins[key] = returned;
     } else if (manualProfile && isSupportedProfileValue(manualProfile[key])) {
       origins[key] = { origin: "extracted", sourceId: "manual", sourceTextOrigin: "user-supplied" };

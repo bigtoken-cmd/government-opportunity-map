@@ -45,6 +45,16 @@ const EXTRACTION_POLICY = `# Founder Evidence Extraction Policy
 - Never summarize, normalize, categorize, rewrite, or infer a value, even when it seems obvious.
 - Keep unsupported facts unknown by omitting their claims.
 
+## Extraction depth
+- Review every supplied source and website-page section, not only the opening text.
+- Return every supported founder-profile field, while returning at most one claim per field.
+- For description, prefer one concise exact sentence that says what the company provides, builds, or enables and who it serves.
+- For industry and technology, prefer the most specific explicit product, technical, or market phrase over generic words such as technology, software, or AI.
+- Look specifically for exact evidence about customers, research work, company stage, location, founding year, team size, funding history, funding need, and use of funds.
+- A company-level claim must explicitly describe the company. Do not turn a founder biography, school, former employer, customer, partner, contributor pool, legal boilerplate, or aspirational market into a company fact.
+- In particular, location requires explicit company headquarters or based-in language; a founder's school or prior employer location is not company location.
+- Do not force a claim merely to fill a field. Richer extraction still requires exact source language.
+
 ## Prohibited decisions
 - Do not infer or decide government facts, eligibility, scores, deadlines, award amounts, totals, provenance, recommendations, or application decisions.`;
 

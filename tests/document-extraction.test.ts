@@ -5,6 +5,7 @@ import {
   extractUploadedDocument,
   type UploadLike,
 } from "../src/lib/intake/document-extraction";
+import { textPdfBytes } from "./fixtures/text-pdf";
 
 function upload(name: string, bytes: Uint8Array, type = "application/octet-stream"): UploadLike {
   return {
@@ -58,24 +59,41 @@ test("ordinary PPTX slide text is extracted in slide order without notes or medi
   assert.ok(result.text.indexOf("Sensor research") < result.text.indexOf("Public utility pilots"));
 });
 
-test("PDF keeps supplied text explicitly unverified and otherwise asks for pasted text", async () => {
-  const bytes = new TextEncoder().encode("%PDF-fixture");
+test("PDF extracts embedded text and keeps an honest image-only fallback", async () => {
   const extracted = await extractUploadedDocument(
-    upload("company.pdf", bytes, "application/pdf"),
+    upload(
+      "company.pdf",
+      textPdfBytes("Acme serves municipal utilities with water sensors."),
+      "application/pdf",
+    ),
     0,
+  );
+  assert.equal(extracted.summary.extractionStatus, "extracted");
+  assert.equal(extracted.summary.textOrigin, "server-extracted");
+  assert.match(extracted.text, /municipal utilities with water sensors/);
+
+  const invalidBytes = new TextEncoder().encode("%PDF-fixture");
+  const supplied = await extractUploadedDocument(
+    upload("company.pdf", invalidBytes, "application/pdf"),
+    1,
     "Acme serves municipal utilities with water sensors.",
   );
-  assert.equal(extracted.summary.extractionStatus, "provided-text");
-  assert.equal(extracted.summary.textOrigin, "user-supplied");
-  assert.match(extracted.summary.message ?? "", /not verified against the uploaded PDF/);
-  assert.match(extracted.text, /municipal utilities/);
+  assert.equal(supplied.summary.extractionStatus, "provided-text");
+  assert.equal(supplied.summary.textOrigin, "user-supplied");
+  assert.match(supplied.summary.message ?? "", /not verified against the uploaded PDF bytes/);
 
   const unreadable = await extractUploadedDocument(
-    upload("scanned.pdf", bytes, "application/pdf"),
-    1,
+    upload("scanned.pdf", invalidBytes, "application/pdf"),
+    2,
   );
   assert.equal(unreadable.summary.extractionStatus, "needs-paste");
-  assert.match(unreadable.summary.message ?? "", /Paste its text/);
+  assert.match(unreadable.summary.message ?? "", /could not be read|password-protected/);
+
+  const oversized = upload("oversized.pdf", invalidBytes, "application/pdf");
+  oversized.size = 5 * 1024 * 1024 + 1;
+  const limited = await extractUploadedDocument(oversized, 3);
+  assert.equal(limited.summary.extractionStatus, "needs-paste");
+  assert.match(limited.summary.message ?? "", /over the 5 MB limit/);
 });
 
 test("compressed office text parts are rejected from central-directory sizes before inflation", async () => {

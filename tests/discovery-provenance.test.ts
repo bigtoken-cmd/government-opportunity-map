@@ -65,7 +65,7 @@ test("discovery returns at most twenty actionable current opportunities with res
       opportunityId: opportunity.id,
       fitStatus: "Potential Fit",
       decision: "Watch",
-      score: { mission: 25, exactTerms: 20, controlledConcepts: 0, technologyAndRd: 0, customerUse: 0, amount: 0, geography: 0, total: 45 },
+      score: { mission: 20, exactTerms: 0, controlledConcepts: 0, technologyAndRd: 0, customerUse: 0, amount: 0, geography: 0, total: 20 },
       eligibility: [],
       matchedConceptGroups: ["mission", "exact terms"],
       unknownCriticalFacts: [],

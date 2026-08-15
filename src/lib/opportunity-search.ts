@@ -91,7 +91,7 @@ export function buildSearchQueries(company: CompanyProfile): SearchQuery[] {
   ) => {
     let added = 0;
     for (const candidate of terms) {
-      if (queries.length >= 6 || added >= familyLimit) break;
+      if (queries.length >= 8 || added >= familyLimit) break;
       const term = candidate.trim();
       const normalized = term.toLocaleLowerCase("en-US");
       if (
@@ -106,12 +106,12 @@ export function buildSearchQueries(company: CompanyProfile): SearchQuery[] {
   };
 
   addTerms("exact", company.exactTerms, 2);
-  addTerms("controlled", company.controlledConcepts, 1);
+  addTerms("controlled", company.controlledConcepts, 2);
   addTerms("customer", company.customerUses, 1);
   addTerms("mission", company.missionAreas, 1);
   if (
     queries.length > 0
-    && queries.length < 6
+    && queries.length < 8
     && company.smallBusiness === "yes"
     && company.technologyAndRd.length > 0
   ) {
@@ -121,8 +121,8 @@ export function buildSearchQueries(company: CompanyProfile): SearchQuery[] {
     });
     seen.add("small business innovation research");
   }
-  addTerms("technology", company.technologyAndRd, 1);
-  return queries.slice(0, 6);
+  addTerms("technology", company.technologyAndRd, 2);
+  return queries.slice(0, 8);
 }
 
 function combinedSourceStatus<TRecord extends SourcedGovernmentRecord>(

@@ -11,7 +11,10 @@ import {
   type FounderEvidenceSourceType,
   type LunaExtractionDependencies,
 } from "./luna-extraction";
-import { createEvidenceOnlyFounderProfile } from "./profile-normalization";
+import {
+  createEvidenceOnlyFounderProfile,
+  normalizeFounderLocation,
+} from "./profile-normalization";
 import {
   fetchWebsiteEvidence,
   type WebsiteEvidenceSnapshot,
@@ -20,7 +23,7 @@ import {
 const MAX_UPLOAD_COUNT = 5;
 const MAX_TOTAL_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_MULTIPART_BODY_BYTES = MAX_TOTAL_UPLOAD_BYTES + 1_000_000;
-const MAX_COMBINED_EVIDENCE_CHARACTERS = 24_000;
+const MAX_COMBINED_EVIDENCE_CHARACTERS = 36_000;
 const MAX_MANUAL_CHARACTERS = 8_000;
 
 interface BundleTextSource {
@@ -99,12 +102,24 @@ function sourceType(value: IntakeSourceSummary["type"]): FounderEvidenceSourceTy
 }
 
 function boundedSources(sources: readonly BundleTextSource[]) {
-  let remaining = MAX_COMBINED_EVIDENCE_CHARACTERS;
-  return sources.flatMap((source): BundleTextSource[] => {
-    if (remaining <= 0 || !source.text.trim()) return [];
-    const text = source.text.trim().slice(0, remaining);
-    remaining -= text.length;
-    return [{ ...source, text }];
+  const active = sources
+    .map((source) => ({ ...source, text: source.text.trim() }))
+    .filter((source) => source.text.length > 0);
+  if (!active.length) return [];
+
+  const initialShare = Math.floor(MAX_COMBINED_EVIDENCE_CHARACTERS / active.length);
+  const bounded = active.map((source) => ({
+    ...source,
+    text: source.text.slice(0, initialShare),
+  }));
+  let remaining = MAX_COMBINED_EVIDENCE_CHARACTERS
+    - bounded.reduce((total, source) => total + source.text.length, 0);
+  return bounded.map((source, index) => {
+    if (remaining <= 0) return source;
+    const original = active[index].text;
+    const extra = original.slice(source.text.length, source.text.length + remaining);
+    remaining -= extra.length;
+    return { ...source, text: source.text + extra };
   });
 }
 
@@ -130,8 +145,16 @@ function mergeProfile(
   const base = createEvidenceOnlyFounderProfile(
     sources.map((source) => source.text).join("\n\n"),
   );
+  const nonWebsiteText = sources
+    .filter((source) => source.summary.id !== "website")
+    .map((source) => source.text.trim())
+    .filter(Boolean);
+  const fallbackDescription = website?.profile.description
+    ? [website.profile.description, ...nonWebsiteText].join("\n\n").slice(0, 8_000)
+    : base.description.slice(0, 8_000);
   const profile: Record<string, string> = {
     ...base,
+    description: fallbackDescription,
     ...(website?.profile.companyName
       ? { companyName: website.profile.companyName }
       : {}),
@@ -143,6 +166,7 @@ function mergeProfile(
   for (const [field, value] of Object.entries(proposed)) {
     if (value.trim()) profile[field] = value.trim();
   }
+  if (profile.location) profile.location = normalizeFounderLocation(profile.location);
   return profile;
 }
 
@@ -161,9 +185,11 @@ function profileFieldOrigins(
   return Object.fromEntries(Object.entries(profile).map(([field, value]) => {
     const claim = claimByField.get(field as FounderEvidenceClaim["field"]);
     if (claim) {
+      const normalized = value !== claim.value;
       return [field, {
-        origin: "extracted",
+        origin: normalized ? "normalized" : "extracted",
         sourceId: claim.sourceId,
+        ...(normalized ? { originalValue: claim.value } : {}),
         ...(claim.sourceIds ? { sourceIds: claim.sourceIds } : {}),
         ...(claim.sourceTextOrigin ? { sourceTextOrigin: claim.sourceTextOrigin } : {}),
         ...(claim.sourceTextOrigins ? { sourceTextOrigins: claim.sourceTextOrigins } : {}),
@@ -230,10 +256,19 @@ export function createEvidenceBundlePost(
 
     const manualText = formText(form, "manualText").slice(0, MAX_MANUAL_CHARACTERS);
     const websiteUrl = formText(form, "website");
-    const sourcePromises = files.map((file, index) =>
-      extractUploadedDocument(file, index, suppliedFileTexts[index] ?? ""));
+    const uploadTask = (async () => {
+      const results = [];
+      for (const [index, file] of files.entries()) {
+        results.push(await extractUploadedDocument(
+          file,
+          index,
+          suppliedFileTexts[index] ?? "",
+        ));
+      }
+      return results;
+    })();
     const [uploadResults, websiteResult] = await Promise.all([
-      Promise.all(sourcePromises),
+      uploadTask,
       websiteUrl
         ? fetchWebsiteEvidence(
             websiteUrl,
