@@ -1,7 +1,7 @@
 # Jacob UI handoff checklist
 
 > [!WARNING]
-> **DEPRECATED AS AN ACTIVE CHECKLIST — retained as historical UI/P0 verification evidence.** Do not continue unchecked items or infer current ownership from this file. Use [`JACOB_BACKEND_INTELLIGENCE_HANDOFF.md`](./JACOB_BACKEND_INTELLIGENCE_HANDOFF.md) for the active plan, current Jacob/Lincoln split, verification cadence, and post-core approval checkpoint.
+> **DEPRECATED AS AN ACTIVE CHECKLIST — retained as historical UI/P0 verification evidence.** Do not continue unchecked items or infer current ownership from this file. Use [`TWO_HOUR_RELEASE_PLAN.md`](./TWO_HOUR_RELEASE_PLAN.md) for the active plan, current Jacob/Lincoln split, verification cadence, Cloudflare checkpoint, and release gate.
 
 Founder-facing follow-up only. Keep P0 behavior source-backed and do not add direct government-form submission.
 

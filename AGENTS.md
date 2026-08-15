@@ -12,8 +12,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # Government Opportunity Map Rules
 
 ## Active planning authority
-- Read `JACOB_BACKEND_INTELLIGENCE_HANDOFF.md` before starting project work.
-- That handoff supersedes this file's historical ownership/branch assignments and the old plans' scope order, verification cadence, and next-step decisions.
+- Read `TWO_HOUR_RELEASE_PLAN.md` before starting project work.
+- That release plan supersedes this file's historical ownership/branch assignments and all older plans' scope order, verification cadence, Cloudflare work, and next-step decisions.
 - The product goal and non-negotiable safety rules below remain active.
 
 ## Product goal

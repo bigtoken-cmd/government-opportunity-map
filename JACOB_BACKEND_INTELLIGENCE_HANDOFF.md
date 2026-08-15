@@ -1,7 +1,7 @@
 # Government Opportunity Map — Jacob / Pro Backend Intelligence Handoff
 
-> [!IMPORTANT]
-> **ACTIVE IMPLEMENTATION PLAN — August 15, 2026.** This document supersedes `HACKATHON_PLAN.md` and `JACOB_CHECKLIST.md` for current ownership, scope, sequencing, verification cadence, and post-core work. Those files remain only as historical P0 records. `AGENTS.md` non-negotiable safety rules still apply.
+> [!WARNING]
+> **DEPRECATED AS AN ACTIVE PLAN — retained as the historical backend-intelligence handoff.** Do not use this file for current ownership, scope, sequencing, verification cadence, Cloudflare work, or next-step decisions. The active authority is [`TWO_HOUR_RELEASE_PLAN.md`](./TWO_HOUR_RELEASE_PLAN.md). `AGENTS.md` non-negotiable safety rules still apply.
 
 > Copy this entire document into a new ChatGPT Pro/Codex chat opened on the repository at `/Users/lincolnberbert/Projects/government-opportunity-map-main`.
 
