@@ -330,6 +330,7 @@ const INITIAL_CHECKLIST = [
 ];
 
 const STORAGE_KEY = "government-opportunity-map-workspace-v1";
+const STORAGE_VERSION = 3;
 const WORKSPACE_CLIENT = createWorkspaceClient();
 const SAVE_MODE_CONTENT: Record<
   SaveMode,
@@ -352,6 +353,8 @@ const SAVE_MODE_CONTENT: Record<
   },
 };
 interface StoredWorkbenchSnapshot {
+  version?: number;
+  discoveryOrigin?: "api";
   stage?: Stage;
   profile?: CompanyProfile;
   selectedOpportunityId?: string;
@@ -661,21 +664,28 @@ export default function OpportunityWorkbench() {
           const stored = window.localStorage.getItem(STORAGE_KEY);
           if (!stored) return;
           const parsed = JSON.parse(stored) as StoredWorkbenchSnapshot;
+          const hasCurrentApiDiscovery = parsed.version === STORAGE_VERSION
+            && parsed.discoveryOrigin === "api";
           if (parsed.profile) setProfile({ ...EMPTY_PROFILE, ...parsed.profile });
-          if (parsed.stage) setStage(parsed.stage);
+          if (parsed.stage) {
+            const requiresDiscovery = parsed.stage === "results" || parsed.stage === "workspace";
+            setStage(requiresDiscovery && !hasCurrentApiDiscovery ? "review" : parsed.stage);
+          }
           const workspace = hydrateWorkspace(
             parsed.workspace ? JSON.stringify(parsed.workspace) : null,
           );
           setSelectedOpportunityId(workspace.selectedOpportunityId);
           setChecklistByOpportunity(workspace.checklistByOpportunity);
           if (parsed.sourceEvidence) setSourceEvidence(parsed.sourceEvidence);
-          if (parsed.matches) setMatches(parsed.matches);
-          if (parsed.programs) setPrograms(parsed.programs);
-          if (parsed.historicalAwards) {
-            setHistoricalAwards(parsed.historicalAwards);
-          }
-          if (parsed.sourceSummaries) {
-            setSourceSummaries(parsed.sourceSummaries);
+          if (hasCurrentApiDiscovery) {
+            if (parsed.matches) setMatches(parsed.matches);
+            if (parsed.programs) setPrograms(parsed.programs);
+            if (parsed.historicalAwards) {
+              setHistoricalAwards(parsed.historicalAwards);
+            }
+            if (parsed.sourceSummaries) {
+              setSourceSummaries(parsed.sourceSummaries);
+            }
           }
           if (parsed.savedOpportunityIds) {
             setSavedOpportunityIds(parsed.savedOpportunityIds);
@@ -741,6 +751,8 @@ export default function OpportunityWorkbench() {
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
+        version: STORAGE_VERSION,
+        discoveryOrigin: "api",
         stage,
         profile,
         workspace: {

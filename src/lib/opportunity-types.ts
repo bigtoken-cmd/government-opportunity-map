@@ -1,7 +1,7 @@
 /** Shared contracts for deterministic, source-backed opportunity matching. */
 export type FactState = "current" | "historical" | "unknown";
 export type RecordKind = "opportunity" | "program" | "award";
-export type SnapshotStatus = "live" | "cached_official_snapshot" | "cached_demo_snapshot";
+export type SnapshotStatus = "live" | "cached_official_snapshot";
 export type FitStatus = "Strong Fit" | "Potential Fit" | "No Fit";
 export type DecisionLabel =
   | "Pursue now"
@@ -160,7 +160,6 @@ export interface Opportunity {
   customerUses: readonly string[];
   geographies: readonly string[];
   eligibility: EligibilityRequirement;
-  demoLabel?: string;
 }
 
 export interface EligibilityCheck {

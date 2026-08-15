@@ -113,7 +113,7 @@ function founderProfileInput(value: unknown): FounderProfileInput | null {
   const description = text(profile.description);
   if (!description) return null;
   return {
-    id: text(profile.id) || text(profile.demoKey) || "founder-profile",
+    id: text(profile.id) || "founder-profile",
     companyName: text(profile.companyName),
     website: text(profile.website),
     description,

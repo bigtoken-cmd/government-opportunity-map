@@ -19,4 +19,13 @@ test("production source has no bundled demo fixture modules or verifier imports"
     "utf8",
   );
   assert.equal(/fixture|demo-/i.test(productionUi), false);
+
+  for (const path of [
+    "src/lib/opportunity-types.ts",
+    "src/lib/intake/profile-normalization.ts",
+    "src/app/api/opportunities/search/route.ts",
+  ]) {
+    const source = readFileSync(resolve(root, path), "utf8");
+    assert.equal(/cached_demo_snapshot|demoLabel|demoKey/.test(source), false, path);
+  }
 });

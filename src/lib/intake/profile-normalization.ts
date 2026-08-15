@@ -32,7 +32,6 @@ export interface FounderProfileInput {
 }
 
 export interface EvidenceOnlyFounderProfile {
-  demoKey: "custom";
   description: string;
   industry: string;
   technology: string;
@@ -58,7 +57,6 @@ export interface EvidenceOnlyFounderProfile {
 
 export function createEvidenceOnlyFounderProfile(text: string): EvidenceOnlyFounderProfile {
   return {
-    demoKey: "custom",
     description: text.trim(),
     industry: "",
     technology: "",
