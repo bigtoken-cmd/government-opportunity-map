@@ -637,6 +637,7 @@ export default function OpportunityWorkbench() {
   const durableSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const durableGenerationRef = useRef(0);
   const lastSyncedPayloadRef = useRef("");
+  const processingDetailsRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -869,6 +870,11 @@ export default function OpportunityWorkbench() {
       : "saving";
   const hasConsentError = intakeStatus === "error"
     && intakeMessage.startsWith("Consent is required");
+  useEffect(() => {
+    if (hasConsentError && processingDetailsRef.current) {
+      processingDetailsRef.current.open = true;
+    }
+  }, [hasConsentError]);
   const currentReviewQuestionKey = reviewQuestionKeys[reviewQuestionIndex];
   const currentReviewQuestion = REQUIRED_REVIEW_QUESTIONS.find(
     ({ key }) => key === currentReviewQuestionKey,
@@ -1191,8 +1197,13 @@ export default function OpportunityWorkbench() {
                     className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
                   />
 
-                  <div className={`mt-5 rounded-xl border px-4 py-4 ${hasConsentError ? "border-[#c96a55]/55 bg-[#fff5f2]" : "border-[#0968d8]/20 bg-[#eef6ff]"}`}>
-                    <label className="flex cursor-pointer items-start gap-3">
+                  <details
+                    ref={processingDetailsRef}
+                    className={`mt-5 rounded-xl border px-4 py-3 text-sm ${hasConsentError ? "border-[#c96a55]/45 bg-[#fff8f6]" : "border-[#0a1930]/10 bg-[#f8fafd]"}`}
+                  >
+                    <summary className="cursor-pointer font-bold text-[#36475f]">How your information is processed</summary>
+                    <p className="mt-2 text-xs leading-5 text-[#66758a]">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
+                    <label className="mt-3 flex cursor-pointer items-start gap-3 text-xs font-semibold leading-5">
                       <input
                         type="checkbox"
                         checked={externalProcessingConsent}
@@ -1203,21 +1214,13 @@ export default function OpportunityWorkbench() {
                         aria-invalid={hasConsentError}
                         className="mt-0.5 h-4 w-4 shrink-0 accent-[#0968d8]"
                       />
-                      <span>
-                        <span className="block text-sm font-bold text-[#17375f]">I consent to AI processing of the information I submit.</span>
-                        <span className="mt-1 block text-xs leading-5 text-[#66758a]">Required to build your reviewable company profile.</span>
-                      </span>
+                      <span>I consent to this processing for the evidence I submit.</span>
                     </label>
                     {hasConsentError && (
                       <p role="alert" className="mt-3 border-t border-[#c96a55]/20 pt-3 text-xs font-bold text-[#8b3c2b]">
                         Check the consent box to continue.
                       </p>
                     )}
-                  </div>
-
-                  <details className="mt-3 rounded-xl border border-[#0a1930]/10 bg-[#f8fafd] px-4 py-3 text-sm">
-                    <summary className="cursor-pointer font-bold text-[#36475f]">How your information is processed</summary>
-                    <p className="mt-2 text-xs leading-5 text-[#66758a]">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
                   </details>
 
                   <button
