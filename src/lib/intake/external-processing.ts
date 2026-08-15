@@ -1,2 +1,2 @@
 export const EXTERNAL_PROCESSING_DISCLOSURE =
-  "With your explicit consent, supplied company evidence is sent to OpenAI for profile-field suggestions. It is not stored by this app, and Luna does not decide eligibility, scores, deadlines, award amounts, totals, provenance, or government facts.";
+  "With your explicit consent, supplied company evidence is sent to OpenAI for profile-field suggestions and an optional evidence-linked comparison with official opportunity scope. It is not stored by this app. Luna does not decide eligibility, government facts, dates, or amounts, and cannot increase a recommendation; it may only lower certainty or remove a weak semantic match, with deterministic fallback.";

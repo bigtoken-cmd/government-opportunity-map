@@ -10,6 +10,9 @@ test("the test-only v2 fixture exposes the additive recommendation seam", () => 
   assert.equal(recommendation.intelligence.routeType, "verify");
   assert.ok(recommendation.intelligence.whyFit[0].opportunityEvidenceId);
   assert.equal(recommendation.intelligence.nextAction.type, "verify");
+  assert.equal(recommendation.match.effectiveScore, 69);
+  assert.equal(recommendation.match.semanticReview?.alignment, "partial");
+  assert.equal(opportunitySearchResponseV2Fixture.semanticReview.completed, true);
 });
 
 test("production modules never import the test-only v2 fixture", () => {

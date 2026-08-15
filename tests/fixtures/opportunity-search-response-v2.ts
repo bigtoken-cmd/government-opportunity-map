@@ -74,6 +74,16 @@ export const opportunitySearchResponseV2Fixture = {
         }],
         matchedConceptGroups: ["mission", "exact terms", "controlled concepts", "customer/use"],
         unknownCriticalFacts: ["SAM registration"],
+        effectiveScore: 69,
+        semanticReview: {
+          alignment: "partial",
+          companyEvidenceIds: ["company-description-1"],
+          opportunityEvidenceIds: ["notice-1-scope-1"],
+          mismatchCodes: ["different_end_user"],
+          provider: "openai",
+          model: "gpt-5.6-luna",
+          basis: "official-scope-cap-only",
+        },
         reason: "Critical facts need verification: SAM registration.",
       },
       intelligence: {
@@ -113,4 +123,18 @@ export const opportunitySearchResponseV2Fixture = {
     },
   },
   warnings: [],
+  semanticReview: {
+    attempted: true,
+    completed: true,
+    reason: null,
+    reviewedCount: 1,
+    strongCount: 0,
+    partialCount: 1,
+    weakCount: 0,
+    redactionCount: 0,
+    provider: "openai",
+    model: "gpt-5.6-luna",
+  },
+  externalProcessingDisclosure:
+    "Test-only disclosure for consented semantic opportunity review.",
 } satisfies GovernmentSourceSearchResult;

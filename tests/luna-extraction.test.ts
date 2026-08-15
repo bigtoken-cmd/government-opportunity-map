@@ -112,6 +112,26 @@ test("secret-like values and government identifiers are redacted before Luna", a
   assert.equal(result.externalProcessing.completed, true);
 });
 
+test("common direct identifiers are removed from consented external evidence", async () => {
+  const identifiers = [
+    "founder@example.com",
+    "(801) 555-0199",
+    "123 Main Street Suite 4",
+    "routing number: 123456789",
+    "A1B2C3D4E5F6",
+  ];
+  const sanitized = await sanitizeThroughProvider(
+    `${EVIDENCE}\nContact: ${identifiers.join(" | ")}`,
+  );
+
+  assert.equal(sanitized.calls, 1);
+  for (const identifier of identifiers) {
+    assert.equal(sanitized.submittedEvidence.includes(identifier), false, identifier);
+  }
+  assert.match(sanitized.submittedEvidence, /\[REDACTED_PERSONAL_DATA\]/);
+  assert.ok(sanitized.result.externalProcessing.redactionCount >= identifiers.length);
+});
+
 test("private-key blocks are redacted before Luna", async () => {
   const privateKeyLabels = [
     "PRIVATE KEY",

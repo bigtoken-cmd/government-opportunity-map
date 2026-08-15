@@ -5,6 +5,12 @@ import {
   type OpportunityRanker,
 } from "./opportunity-discovery";
 import { rankOpportunities } from "./opportunity-matching";
+import {
+  reviewOpportunitySemantics,
+  type LunaSemanticReviewDependencies,
+  type SemanticReviewProcessing,
+} from "./opportunity-semantic-review";
+import { EXTERNAL_PROCESSING_DISCLOSURE } from "./intake/external-processing";
 import type { CompanyProfile } from "./opportunity-types";
 import { searchAssistanceListings } from "./sources/assistance-listings";
 import type { AssistanceListingsStore } from "./sources/assistance-listings-store";
@@ -40,6 +46,8 @@ export interface GovernmentSourceSearchResult {
   sources: readonly SourceSearchSummary[];
   discovery: OpportunityDiscovery;
   warnings: readonly string[];
+  semanticReview?: SemanticReviewProcessing;
+  externalProcessingDisclosure?: string;
 }
 
 export interface GovernmentSourceSearchOptions {
@@ -50,9 +58,17 @@ export interface GovernmentSourceSearchOptions {
   assistanceListingsStore?: AssistanceListingsStore;
   sbirAwardsStore?: SbirAwardsStore;
   ranker?: OpportunityRanker;
+  semanticReview?: LunaSemanticReviewDependencies & {
+    externalProcessingConsent: boolean;
+  };
 }
 
-export type SearchQueryFamily = "exact" | "controlled" | "technology";
+export type SearchQueryFamily =
+  | "exact"
+  | "controlled"
+  | "customer"
+  | "mission"
+  | "technology";
 
 export interface SearchQuery {
   term: string;
@@ -68,42 +84,51 @@ const GENERIC_SEARCH_TERMS = new Set([
 ]);
 
 export function buildSearchQueries(company: CompanyProfile): SearchQuery[] {
-  const primaryGroups: ReadonlyArray<{
-    family: SearchQueryFamily;
-    terms: readonly string[];
-  }> = [
-    { family: "exact", terms: company.exactTerms },
-    { family: "controlled", terms: company.controlledConcepts },
-  ];
+  const queries: SearchQuery[] = [];
   const seen = new Set<string>();
-  const selectQueries = (
-    groups: ReadonlyArray<{
-      family: SearchQueryFamily;
-      terms: readonly string[];
-    }>,
-  ) => groups.flatMap(({ family, terms }): SearchQuery[] => {
-    const term = terms.find((candidate) => {
-      const normalized = candidate.trim().toLocaleLowerCase("en-US");
-      return normalized.length >= 3
-        && !GENERIC_SEARCH_TERMS.has(normalized)
-        && !seen.has(normalized);
-    });
-    if (!term) return [];
-    const normalized = term.trim().toLocaleLowerCase("en-US");
-    seen.add(normalized);
-    return [{ term: term.trim(), family }];
-  });
-  const primaryQueries = selectQueries(primaryGroups);
-  return primaryQueries.length
-    ? primaryQueries
-    : selectQueries([{
+  const addTerms = (
+    family: SearchQueryFamily,
+    terms: readonly string[],
+    familyLimit: number,
+  ) => {
+    let added = 0;
+    for (const candidate of terms) {
+      if (queries.length >= 6 || added >= familyLimit) break;
+      const term = candidate.trim();
+      const normalized = term.toLocaleLowerCase("en-US");
+      if (
+        normalized.length < 3
+        || GENERIC_SEARCH_TERMS.has(normalized)
+        || seen.has(normalized)
+      ) continue;
+      seen.add(normalized);
+      queries.push({ term, family });
+      added += 1;
+    }
+  };
+
+  addTerms("exact", company.exactTerms, 2);
+  addTerms("controlled", company.controlledConcepts, 1);
+  addTerms("customer", company.customerUses, 1);
+  addTerms("mission", company.missionAreas, 1);
+  if (
+    queries.length > 0
+    && queries.length < 6
+    && company.smallBusiness === "yes"
+    && company.technologyAndRd.length > 0
+  ) {
+    queries.push({
+      term: "small business innovation research",
       family: "technology",
-      terms: company.technologyAndRd,
-    }]);
+    });
+    seen.add("small business innovation research");
+  }
+  addTerms("technology", company.technologyAndRd, 1);
+  return queries.slice(0, 6);
 }
 
-function combinedSourceStatus(
-  results: readonly SourceResult<CurrentOpportunityRecord>[],
+function combinedSourceStatus<TRecord extends SourcedGovernmentRecord>(
+  results: readonly SourceResult<TRecord>[],
 ): SourceResultStatus {
   if (results.some((result) => result.status === "cached-fallback")) {
     return "cached-fallback";
@@ -113,11 +138,11 @@ function combinedSourceStatus(
   return "unavailable";
 }
 
-function combineGrantsResults(
-  results: readonly SourceResult<CurrentOpportunityRecord>[],
-): SourceResult<CurrentOpportunityRecord> {
+function combineSourceResults<TRecord extends SourcedGovernmentRecord>(
+  results: readonly SourceResult<TRecord>[],
+): SourceResult<TRecord> {
   const first = results[0];
-  const recordById = new Map<string, CurrentOpportunityRecord>();
+  const recordById = new Map<string, TRecord>();
   for (const result of results) {
     for (const record of result.records) {
       const existing = recordById.get(record.id);
@@ -146,6 +171,38 @@ function combineGrantsResults(
   };
 }
 
+function selectEnrichmentCandidates(
+  ranked: readonly CurrentOpportunityRecord[],
+  queryResults: readonly SourceResult<CurrentOpportunityRecord>[],
+  canonicalRecords: readonly CurrentOpportunityRecord[],
+  limit: number,
+) {
+  const selected = new Map<string, CurrentOpportunityRecord>();
+  const canonicalById = new Map(canonicalRecords.map((record) => [record.id, record]));
+  const add = (record: CurrentOpportunityRecord | undefined) => {
+    const canonical = record ? canonicalById.get(record.id) : undefined;
+    if (!canonical || selected.size >= limit || selected.has(canonical.id)) return false;
+    selected.set(canonical.id, canonical);
+    return true;
+  };
+  ranked.slice(0, Math.ceil(limit / 2)).forEach(add);
+  const diverseLimit = Math.floor(limit / 2);
+  let diverseAdded = 0;
+  const maximumResultLength = Math.max(0, ...queryResults.map((result) => result.records.length));
+  for (
+    let index = 0;
+    index < maximumResultLength && diverseAdded < diverseLimit;
+    index += 1
+  ) {
+    for (const result of queryResults) {
+      if (diverseAdded >= diverseLimit) break;
+      if (add(result.records[index])) diverseAdded += 1;
+    }
+  }
+  ranked.forEach(add);
+  return [...selected.values()];
+}
+
 export function selectAssistanceListing(
   company: CompanyProfile,
   records: readonly CurrentOpportunityRecord[],
@@ -169,18 +226,27 @@ export async function searchGovernmentSources(
     fetcher: options.fetcher,
     now: options.now,
   };
-  let grants = combineGrantsResults(await Promise.all(
-    (searchQueries.length ? searchQueries : [{ term: "", family: "exact" as const }])
-      .map((query) => searchGrants({ keyword: query.term }, adapterOptions)),
-  ));
+  const grantQueries = searchQueries.length
+    ? searchQueries
+    : [{ term: "", family: "exact" as const }];
+  const grantResults = await Promise.all(
+    grantQueries.map((query) => searchGrants({ keyword: query.term }, adapterOptions)),
+  );
+  let grants = combineSourceResults(grantResults);
   const ranker = options.ranker ?? rankOpportunities;
   const detailFetcher = options.grantsDetailFetcher ?? options.fetcher ?? fetch;
   const detailModeEnabled = options.mode !== "cached" && options.mode !== "failure";
   if (detailModeEnabled && grants.records.length) {
-    const candidates = selectOpportunityCandidates(
-      company,
+    const candidates = selectEnrichmentCandidates(
+      selectOpportunityCandidates(
+        company,
+        grants.records,
+        ranker,
+        24,
+      ),
+      grantResults.filter((_result, index) =>
+        grantQueries[index]?.term !== "small business innovation research"),
       grants.records,
-      ranker,
       24,
     );
     const candidateIds = new Set(candidates.map((record) => record.id));
@@ -207,24 +273,36 @@ export async function searchGovernmentSources(
     ranker,
   );
 
-  const assistanceInput = assistanceListing ? { assistanceListing } : { keyword };
-  const [programs, spending, sbir] = await Promise.all([
-    searchAssistanceListings(assistanceInput, {
-      ...adapterOptions,
-      store: options.assistanceListingsStore,
-    }).catch(() => searchAssistanceListings(assistanceInput, {
-      ...adapterOptions,
-      mode: "failure",
-    })),
+  const contextQueries = (searchQueries.length
+    ? searchQueries
+    : [{ term: keyword, family: "exact" as const }])
+    .filter((query) => query.term !== "small business innovation research")
+    .slice(0, 3);
+  const assistanceInputs = assistanceListing
+    ? [{ assistanceListing }]
+    : contextQueries.map((query) => ({ keyword: query.term }));
+  const sbirKeywords = contextQueries.map((query) => query.term);
+  const [programResults, spending, sbirResults] = await Promise.all([
+    Promise.all(assistanceInputs.map((input) =>
+      searchAssistanceListings(input, {
+        ...adapterOptions,
+        store: options.assistanceListingsStore,
+      }).catch(() => searchAssistanceListings(input, {
+        ...adapterOptions,
+        mode: "failure",
+      })))),
     searchUsaSpending(assistanceListing, adapterOptions),
-    searchSbirAwards(keyword, {
-      ...adapterOptions,
-      store: options.sbirAwardsStore,
-    }).catch(() => searchSbirAwards(keyword, {
-      ...adapterOptions,
-      mode: "failure",
-    })),
+    Promise.all(sbirKeywords.map((term) =>
+      searchSbirAwards(term, {
+        ...adapterOptions,
+        store: options.sbirAwardsStore,
+      }).catch(() => searchSbirAwards(term, {
+        ...adapterOptions,
+        mode: "failure",
+      })))),
   ]);
+  const programs = combineSourceResults(programResults);
+  const sbir = combineSourceResults(sbirResults);
 
   const records: SourcedGovernmentRecord[] = [
     ...grants.records,
@@ -271,17 +349,46 @@ export async function searchGovernmentSources(
     },
   ];
 
+  let discovery = discoverOpportunities(
+    company,
+    records,
+    ranker,
+  );
+  let semanticReview: SemanticReviewProcessing | undefined;
+  const warnings = sources.flatMap((source) => source.warning ? [source.warning] : []);
+  if (options.semanticReview?.externalProcessingConsent === true) {
+    const {
+      externalProcessingConsent,
+      ...semanticDependencies
+    } = options.semanticReview;
+    const reviewed = await reviewOpportunitySemantics({
+      externalProcessingConsent,
+      company,
+      discovery,
+    }, semanticDependencies);
+    discovery = reviewed.discovery;
+    semanticReview = reviewed.processing;
+    if (
+      !reviewed.processing.completed
+      && reviewed.processing.reason !== "not_applicable"
+    ) {
+      warnings.push(
+        `Luna semantic scope review was unavailable (${reviewed.processing.reason}); deterministic ranking was preserved.`,
+      );
+    }
+  }
+
   return {
     query: {
       keyword,
       assistanceListing: assistanceListing || null,
     },
     sources,
-    discovery: discoverOpportunities(
-      company,
-      records,
-      ranker,
-    ),
-    warnings: sources.flatMap((source) => source.warning ? [source.warning] : []),
+    discovery,
+    warnings,
+    ...(semanticReview ? {
+      semanticReview,
+      externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
+    } : {}),
   };
 }

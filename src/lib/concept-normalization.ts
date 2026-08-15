@@ -28,22 +28,49 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     customerUses: [],
   };
 
-  const hasHealthcare = hasAny(
-    text,
-    ["healthcare", "hospital", "nurse", "clinical", "patient", "biomedical"],
-  );
-  if (hasHealthcare) {
+  const hasHealthcareDelivery = hasAny(text, [
+    "healthcare delivery",
+    "healthcare operations",
+    "hospital",
+    "nurse",
+    "nursing",
+    "health it",
+    "digital health",
+    "clinical workflow",
+    "workflow automation",
+    "administrative work",
+  ]);
+  const hasBiomedicalResearch = hasAny(text, [
+    "clinical trial",
+    "clinical research",
+    "biomedical",
+    "oncology",
+    "cancer",
+    "precision medicine",
+    "medical imaging",
+    "multimodal data",
+  ]);
+  if (hasHealthcareDelivery) {
     add(result.missionAreas, "healthcare delivery");
+    add(result.controlledConcepts, "hospital innovation");
+    if (hasAny(text, ["software", "health it", "workflow", "platform"])) {
+      add(result.technologyAndRd, "software R&D");
+    }
+    if (hasAny(text, ["hospital", "nurse", "workflow", "administrative work"])) {
+      add(result.customerUses, "hospital operations");
+    }
+    if (hasAny(text, ["hospital", "health system", "healthcare delivery", "digital health"])) {
+      add(result.customerUses, "health systems");
+    }
+  }
+  if (hasBiomedicalResearch) {
     add(result.missionAreas, "biomedical research");
-    add(result.technologyAndRd, "software R&D");
-    add(result.technologyAndRd, "clinical validation");
-    add(result.customerUses, "hospital operations");
-    add(result.customerUses, "health systems");
+    add(result.controlledConcepts, "clinical research");
+    if (hasAny(text, ["clinical", "trial", "validation"])) {
+      add(result.technologyAndRd, "clinical validation");
+    }
   }
   if (text.includes("healthcare")) add(result.exactTerms, "healthcare");
-  if (hasAny(text, ["hospital", "nurse", "clinical", "patient", "biomedical"])) {
-    add(result.controlledConcepts, "hospital innovation");
-  }
 
   if (hasAny(text, ["artificial intelligence", "machine learning", " ai ", "ai-powered"])) {
     add(result.technologyAndRd, "artificial intelligence");
@@ -127,11 +154,21 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     "security analytics",
     "secure data",
     "cyber resilience",
+    "cybersecurity resilience",
   ]);
   if (hasCybersecurity) {
     add(result.missionAreas, "cybersecurity");
-    add(result.technologyAndRd, "cybersecurity R&D");
-    add(result.customerUses, "small organizations");
+    if (hasAny(text, [" r&d ", "research and development", "cyber research", "security research"])) {
+      add(result.technologyAndRd, "cybersecurity R&D");
+    }
+    if (hasAny(text, [
+      "small organizations",
+      "mid-sized organizations",
+      "small businesses",
+      "small business",
+    ])) {
+      add(result.customerUses, "small organizations");
+    }
     if (text.includes("federal") || text.includes("homeland")) {
       add(result.missionAreas, "homeland security");
       add(result.controlledConcepts, "federal security");
@@ -140,8 +177,30 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
   }
   if (text.includes("cybersecurity")) add(result.exactTerms, "cybersecurity");
   if (text.includes("threat detection")) add(result.exactTerms, "threat detection");
-  if (hasAny(text, ["cyberspace", "security analytics", "secure data", "cyber resilience"])) {
+  if (hasAny(text, [
+    "cyberspace",
+    "security analytics",
+    "secure data",
+    "cyber resilience",
+    "cybersecurity resilience",
+  ])) {
     add(result.controlledConcepts, "cyber resilience");
+  }
+
+  const hasEducation = hasAny(text, [
+    "education innovation",
+    "graduate medical education",
+    "resident physician",
+    "medical residency",
+    "scholarship",
+    "workforce development",
+    "training program",
+    "curriculum",
+  ]);
+  if (hasEducation) {
+    add(result.missionAreas, "education and workforce");
+    add(result.controlledConcepts, "workforce development");
+    add(result.customerUses, "educational institutions");
   }
 
   const hasResearch =

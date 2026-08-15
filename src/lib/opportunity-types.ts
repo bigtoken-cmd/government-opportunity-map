@@ -10,6 +10,22 @@ export type DecisionLabel =
   | "Watch"
   | "Skip";
 export type RouteType = "direct" | "partner" | "verify" | "watch";
+export type SemanticAlignment = "strong" | "partial" | "weak";
+export type SemanticMismatchCode =
+  | "different_primary_outcome"
+  | "different_end_user"
+  | "different_research_domain"
+  | "generic_domain_overlap_only";
+
+export interface SemanticFitReview {
+  alignment: SemanticAlignment;
+  companyEvidenceIds: readonly string[];
+  opportunityEvidenceIds: readonly string[];
+  mismatchCodes: readonly SemanticMismatchCode[];
+  provider: "openai";
+  model: "gpt-5.6-luna";
+  basis: "official-scope-cap-only";
+}
 
 export interface EvidenceMapping {
   companyFact: string;
@@ -175,5 +191,9 @@ export interface MatchResult {
   unknownCriticalFacts: readonly string[];
   titleDomainMatch?: boolean;
   scopeExactTermMatch?: boolean;
+  scopeDomainMatch?: boolean;
+  /** Raw deterministic score remains in score.total; this optional value is a Luna-reviewed downward cap only. */
+  effectiveScore?: number;
+  semanticReview?: SemanticFitReview;
   reason: string;
 }

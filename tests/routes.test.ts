@@ -43,6 +43,16 @@ test("search route rejects malformed JSON", async () => {
   assert.deepEqual(await response.json(), { error: "Request body must be valid JSON." });
 });
 
+test("search route rejects an oversized body before source or model work", async () => {
+  const response = await search(new Request("https://example.test/api/opportunities/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile: { description: "x".repeat(70 * 1024) } }),
+  }));
+  assert.equal(response.status, 413);
+  assert.deepEqual(await response.json(), { error: "Request body is too large." });
+});
+
 test("search route rejects a missing confirmed description", async () => {
   const response = await search(new Request("https://example.test/api/opportunities/search", {
     method: "POST",
@@ -138,6 +148,7 @@ test("cached search returns role-separated records and source warnings", async (
         "matchedConceptGroups",
         "opportunityId",
         "reason",
+        "scopeDomainMatch",
         "scopeExactTermMatch",
         "score",
         "titleDomainMatch",

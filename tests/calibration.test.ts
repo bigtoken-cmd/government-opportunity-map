@@ -9,6 +9,7 @@ import {
   CALIBRATION_QUERY_LOG,
   type CalibrationQuery,
 } from "./fixtures/calibration-query-log";
+import { CALIBRATION_SCOPE_OVERRIDES } from "./fixtures/calibration-scope-overrides";
 import {
   normalizeFounderProfile,
   type FounderProfileInput,
@@ -96,9 +97,18 @@ async function runCachedPipeline(
   return result;
 }
 
+function effectiveJudgments(query: CalibrationQuery) {
+  return query.judgments.map((judgment) => {
+    const override = CALIBRATION_SCOPE_OVERRIDES.find((item) =>
+      item.profileKey === query.profileKey
+      && item.opportunityId === judgment.opportunityId);
+    return override ? { ...judgment, ...override.corrected } : judgment;
+  });
+}
+
 function relevantOpportunityIds(query: CalibrationQuery) {
   return new Set(
-    query.judgments
+    effectiveJudgments(query)
       .filter((judgment) => judgment.relevant)
       .map((judgment) => judgment.opportunityId),
   );
@@ -109,7 +119,7 @@ function recommendationLabels(
   result: GovernmentSourceSearchResult,
 ) {
   const judgmentByOpportunityId = new Map(
-    query.judgments.map((judgment) => [judgment.opportunityId, judgment]),
+    effectiveJudgments(query).map((judgment) => [judgment.opportunityId, judgment]),
   );
   return result.discovery.recommendations.slice(0, 10).map((recommendation) => ({
     opportunityId: recommendation.opportunity.id,
@@ -132,12 +142,29 @@ test("frozen calibration artifact has provenance, explicit splits, and eight pro
   }
 });
 
-test("cached production recommendations meet calibration recall and precision gates", async () => {
+test("scope-label correction is explicit and leaves the frozen benchmark unchanged", () => {
+  const query = CALIBRATION_QUERY_LOG.find((item) => item.profileKey === "healthcare");
+  assert.ok(query);
+  const frozen = query.judgments.find((item) => item.opportunityId === "grants-359666");
+  const correction = CALIBRATION_SCOPE_OVERRIDES.find((item) =>
+    item.profileKey === "healthcare" && item.opportunityId === "grants-359666");
+  assert.ok(frozen);
+  assert.ok(correction);
+  assert.deepEqual(
+    { relevant: frozen.relevant, actionable: frozen.actionable },
+    correction.previous,
+  );
+  assert.equal(frozen.relevant, true);
+  assert.equal(correction.corrected.relevant, false);
+  assert.match(correction.reason, /precision-medicine AI/);
+});
+
+test("cached production recommendations meet scope-adjudicated recall and precision gates", async () => {
   const positiveCalibration = CALIBRATION_QUERY_LOG.filter(
     (query) => query.split === "calibration"
-      && query.judgments.some((judgment) => judgment.relevant),
+      && effectiveJudgments(query).some((judgment) => judgment.relevant),
   );
-  assert.equal(positiveCalibration.length, 3);
+  assert.equal(positiveCalibration.length, 2);
 
   const observations = await Promise.all(
     positiveCalibration.map(async (query) => ({
@@ -177,10 +204,21 @@ test("cached production recommendations meet calibration recall and precision ga
   );
 });
 
+test("healthcare calibration does not preserve a broad SBIR or precision-medicine false positive", async () => {
+  const query = CALIBRATION_QUERY_LOG.find((item) => item.profileKey === "healthcare");
+  assert.ok(query);
+  assert.equal(query.judgments.some((judgment) => judgment.relevant), true);
+  assert.equal(effectiveJudgments(query).some((judgment) => judgment.relevant), false);
+  const result = await runCachedPipeline(query);
+  const returned = new Set(result.discovery.recommendations.map((item) => item.opportunity.id));
+  assert.equal(returned.has("grants-359671"), false);
+  assert.equal(returned.has("grants-359666"), false);
+});
+
 test("cached production pipeline protects the positive and negative holdouts", async () => {
   const positiveHoldouts = CALIBRATION_QUERY_LOG.filter(
     (query) => query.split === "locked-holdout"
-      && query.judgments.some((judgment) => judgment.relevant),
+      && effectiveJudgments(query).some((judgment) => judgment.relevant),
   );
   assert.equal(positiveHoldouts.length, 1);
   for (const query of positiveHoldouts) {
@@ -198,19 +236,20 @@ test("cached production pipeline protects the positive and negative holdouts", a
   }
 
   const negativeQueries = CALIBRATION_QUERY_LOG.filter(
-    (query) => !query.judgments.some((judgment) => judgment.relevant),
+    (query) => !effectiveJudgments(query).some((judgment) => judgment.relevant),
   );
   assert.deepEqual(
     negativeQueries.map((query) => query.profileKey).sort(),
     [
       "consumer",
+      "healthcare",
       "holdout-bookkeeping",
       "holdout-dog-grooming",
       "holdout-staffing",
     ],
   );
   for (const query of negativeQueries) {
-    assert.ok(query.judgments.every((judgment) => !judgment.actionable));
+    assert.ok(effectiveJudgments(query).every((judgment) => !judgment.actionable));
     const result = await runCachedPipeline(query);
     assert.equal(
       result.discovery.recommendations.length,

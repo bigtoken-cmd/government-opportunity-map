@@ -120,6 +120,22 @@ test("official detail normalization preserves applicant, amount, deadline, and c
   assert.equal(normalized.source.retrievedAt, "2026-08-15T12:30:00.000Z");
 });
 
+test("zero-valued award placeholders remain unstated instead of becoming a $0 range", () => {
+  const normalized = normalizeGrantsDetailPayload(
+    detailPayload("400000", {
+      awardFloor: 0,
+      awardCeiling: "0",
+      estimatedFunding: "$0",
+    }),
+    record("400000"),
+    "2026-08-15T12:30:00.000Z",
+  );
+  assert.ok(normalized);
+  assert.equal(normalized.awardFloor, undefined);
+  assert.equal(normalized.awardCeiling, undefined);
+  assert.equal(normalized.estimatedFunding, undefined);
+});
+
 test("Title XVI-style public-authority eligibility becomes a named partner route, never a direct startup fit", () => {
   const normalized = normalizeGrantsDetailPayload(
     detailPayload("362396"),
@@ -261,6 +277,83 @@ test("the source-search pipeline enriches bounded candidates before final route 
   assert.equal(result.discovery.recommendations[0]?.match.decision, "Partner-dependent");
   assert.equal(result.discovery.recommendations[0]?.opportunity.noticeDetailStatus, "enriched");
   assert.equal(result.discovery.resultMeta.returnedCount, 1);
+});
+
+test("query-diverse enrichment can rescue a generic search-result title with official scope", async () => {
+  let detailCalls = 0;
+  const result = await searchGovernmentSources(company, {
+    fetcher: async (input) => {
+      const url = String(input);
+      if (url.includes("api.grants.gov")) {
+        return Response.json({
+          errorcode: 0,
+          data: {
+            oppHits: [{
+              id: "400007",
+              number: "GENERIC-400007",
+              title: "Open Innovation Challenge",
+              agency: "Bureau of Reclamation",
+              openDate: "2026-05-14",
+              closeDate: "2027-08-26",
+              oppStatus: "posted",
+              cfdaList: ["15.504"],
+            }],
+          },
+        });
+      }
+      if (url.includes("usaspending.gov")) return Response.json({ results: [] });
+      throw new Error(`Unexpected source URL: ${url}`);
+    },
+    grantsDetailFetcher: async () => {
+      detailCalls += 1;
+      const payload = detailPayload("400007");
+      payload.data.opportunityTitle = "Open Innovation Challenge";
+      return Response.json(payload);
+    },
+    now: () => new Date("2026-08-15T12:30:00.000Z"),
+  });
+
+  assert.equal(detailCalls, 1);
+  assert.equal(result.discovery.recommendations[0]?.opportunity.id, "grants-400007");
+  assert.equal(result.discovery.recommendations[0]?.match.scopeDomainMatch, true);
+});
+
+test("query-diverse enrichment cannot spend the full detail budget on rejected records", async () => {
+  let searchIndex = 0;
+  let detailCalls = 0;
+  const result = await searchGovernmentSources(company, {
+    fetcher: async (input) => {
+      const url = String(input);
+      if (url.includes("api.grants.gov")) {
+        const queryIndex = searchIndex;
+        searchIndex += 1;
+        return Response.json({
+          errorcode: 0,
+          data: {
+            oppHits: Array.from({ length: 5 }, (_, index) => ({
+              id: String(500_000 + (queryIndex * 10) + index),
+              number: `GENERIC-${queryIndex}-${index}`,
+              title: `Open Challenge ${queryIndex}-${index}`,
+              agency: "Test Agency",
+              openDate: "2026-05-14",
+              closeDate: "2027-08-26",
+              oppStatus: "posted",
+              cfdaList: [],
+            })),
+          },
+        });
+      }
+      if (url.includes("usaspending.gov")) return Response.json({ results: [] });
+      throw new Error(`Unexpected source URL: ${url}`);
+    },
+    grantsDetailFetcher: async () => {
+      detailCalls += 1;
+      return new Response("unavailable", { status: 503 });
+    },
+  });
+
+  assert.equal(detailCalls, 12);
+  assert.equal(result.discovery.recommendations.length, 0);
 });
 
 test("bounded detail failures stay explicit instead of fabricating notice facts", async () => {

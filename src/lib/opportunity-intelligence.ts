@@ -176,10 +176,34 @@ function concerns(
       sourceUrl: opportunity.source.sourceUrl,
     });
   }
+  if (!opportunity.deadline) {
+    result.push({
+      severity: "verify",
+      text: "The official detail record does not state a deadline; confirm current submission timing on the notice.",
+      evidenceId: evidenceId(`notice-${opportunity.source.sourceId}`, "deadline-not-stated"),
+      sourceUrl: opportunity.source.sourceUrl,
+    });
+  }
+  if (!opportunity.applicationRoute) {
+    result.push({
+      severity: "caution",
+      text: "The official detail record does not expose a direct application URL; confirm the current package on the notice.",
+      evidenceId: evidenceId(`notice-${opportunity.source.sourceId}`, "application-route-not-stated"),
+      sourceUrl: opportunity.source.sourceUrl,
+    });
+  }
+  if (!opportunity.amount) {
+    result.push({
+      severity: "caution",
+      text: "The official detail record does not state an award floor or ceiling.",
+      evidenceId: evidenceId(`notice-${opportunity.source.sourceId}`, "award-amount-not-stated"),
+      sourceUrl: opportunity.source.sourceUrl,
+    });
+  }
   if (!result.length) {
     result.push({
       severity: "caution",
-      text: "Confirm the current official application package before submitting.",
+      text: "No additional source-backed blocker was identified; confirm the current official package before submitting.",
       sourceUrl: opportunity.source.sourceUrl,
     });
   }

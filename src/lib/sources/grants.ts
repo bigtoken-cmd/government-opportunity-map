@@ -230,6 +230,11 @@ function finiteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function positiveNumber(value: unknown) {
+  const parsed = finiteNumber(value);
+  return parsed !== undefined && parsed > 0 ? parsed : undefined;
+}
+
 function booleanValue(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return undefined;
@@ -331,9 +336,9 @@ export function normalizeGrantsDetailPayload(
     eligibleApplicantTypes: descriptions(detail.applicantTypes),
     additionalEligibility: plainText(detail.applicantEligibilityDesc),
     fundingInstruments: descriptions(detail.fundingInstruments),
-    awardFloor: finiteNumber(detail.awardFloor),
-    awardCeiling: finiteNumber(detail.awardCeiling),
-    estimatedFunding: finiteNumber(detail.estimatedFunding),
+    awardFloor: positiveNumber(detail.awardFloor),
+    awardCeiling: positiveNumber(detail.awardCeiling),
+    estimatedFunding: positiveNumber(detail.estimatedFunding),
     expectedAwards: finiteNumber(detail.numberOfAwards),
     costSharing: booleanValue(detail.costSharing),
     ...(applicationRoute ? { applicationRoute } : {}),

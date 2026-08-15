@@ -15,6 +15,17 @@ const GENERIC_TITLE_CONCEPTS = new Set([
   "technical innovation",
   "commercialization",
   "research and development",
+  "artificial intelligence",
+  "software r&d",
+]);
+const BROAD_SCOPE_EXACT_TERMS = new Set([
+  "healthcare",
+  "artificial intelligence",
+  "cybersecurity",
+]);
+const SPECIALIZED_TITLE_MISSIONS = new Set([
+  "biomedical research",
+  "education and workforce",
 ]);
 const setOf = (values: readonly string[]) => new Set(values.map(normalize));
 const overlap = (left: readonly string[], right: readonly string[]) => {
@@ -136,6 +147,11 @@ function amountOverlap(
 
 function hasTitleDomainMatch(company: CompanyProfile, opportunity: Opportunity) {
   const titleConcepts = opportunity.titleConcepts ?? normalizeConcepts(opportunity.title);
+  const companyMissions = setOf(company.missionAreas);
+  const unmatchedSpecializedMission = titleConcepts.missionAreas.some((mission) =>
+    SPECIALIZED_TITLE_MISSIONS.has(normalize(mission))
+    && !companyMissions.has(normalize(mission)));
+  if (unmatchedSpecializedMission) return false;
   const companyConcepts = [
     ...company.missionAreas,
     ...company.exactTerms,
@@ -159,8 +175,46 @@ function hasTitleDomainMatch(company: CompanyProfile, opportunity: Opportunity) 
 }
 
 function hasScopeExactTermMatch(company: CompanyProfile, opportunity: Opportunity) {
-  const companyTerms = setOf(company.exactTerms);
-  return opportunity.exactTerms.some((term) => companyTerms.has(normalize(term)));
+  const companyTerms = setOf(company.exactTerms.filter((term) =>
+    !BROAD_SCOPE_EXACT_TERMS.has(normalize(term))));
+  return opportunity.exactTerms.some((term) => {
+    const normalized = normalize(term);
+    return !BROAD_SCOPE_EXACT_TERMS.has(normalized) && companyTerms.has(normalized);
+  });
+}
+
+function hasScopeDomainMatch(company: CompanyProfile, opportunity: Opportunity) {
+  if (!opportunity.scopeSummary?.trim()) return false;
+  const scopeConcepts = normalizeConcepts(opportunity.scopeSummary);
+  const companyMissions = setOf(company.missionAreas);
+  const unmatchedSpecializedMission = scopeConcepts.missionAreas.some((mission) =>
+    SPECIALIZED_TITLE_MISSIONS.has(normalize(mission))
+    && !companyMissions.has(normalize(mission)));
+  if (unmatchedSpecializedMission) return false;
+  const excluded = new Set([
+    ...GENERIC_TITLE_CONCEPTS,
+    ...BROAD_SCOPE_EXACT_TERMS,
+  ]);
+  const companyConcepts = [
+    ...company.missionAreas,
+    ...company.exactTerms,
+    ...company.controlledConcepts,
+    ...company.technologyAndRd,
+    ...company.customerUses,
+  ];
+  const companySet = setOf(companyConcepts.filter((concept) =>
+    !excluded.has(normalize(concept))));
+  const scopeValues = [
+    ...scopeConcepts.missionAreas,
+    ...scopeConcepts.exactTerms,
+    ...scopeConcepts.controlledConcepts,
+    ...scopeConcepts.technologyAndRd,
+    ...scopeConcepts.customerUses,
+  ];
+  return scopeValues.some((concept) => {
+    const normalized = normalize(concept);
+    return !excluded.has(normalized) && companySet.has(normalized);
+  });
 }
 
 export function matchOpportunity(company: CompanyProfile, opportunity: Opportunity): MatchResult {
@@ -172,7 +226,8 @@ export function matchOpportunity(company: CompanyProfile, opportunity: Opportuni
   const groups = matchedGroups(company, opportunity);
   const titleDomainMatch = hasTitleDomainMatch(company, opportunity);
   const scopeExactTermMatch = hasScopeExactTermMatch(company, opportunity);
-  const domainEvidenceMatch = titleDomainMatch || scopeExactTermMatch;
+  const scopeDomainMatch = hasScopeDomainMatch(company, opportunity);
+  const domainEvidenceMatch = titleDomainMatch || scopeExactTermMatch || scopeDomainMatch;
   const fitStatus: FitStatus = hasHardFailure || !domainEvidenceMatch
     ? "No Fit"
     : unknownCriticalFacts.length
@@ -199,7 +254,7 @@ export function matchOpportunity(company: CompanyProfile, opportunity: Opportuni
         : groups.length < 2
           ? "Fewer than two meaningful concept groups matched."
           : "Deterministic rubric and eligibility checks completed.";
-  return { companyId: company.id, opportunityId: opportunity.id, fitStatus, decision, score, eligibility, matchedConceptGroups: groups, unknownCriticalFacts, titleDomainMatch, scopeExactTermMatch, reason };
+  return { companyId: company.id, opportunityId: opportunity.id, fitStatus, decision, score, eligibility, matchedConceptGroups: groups, unknownCriticalFacts, titleDomainMatch, scopeExactTermMatch, scopeDomainMatch, reason };
 }
 
 function matchedGroups(company: CompanyProfile, opportunity: Opportunity): string[] {
