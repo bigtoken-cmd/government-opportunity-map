@@ -1,13 +1,29 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { EXTERNAL_PROCESSING_DISCLOSURE } from "@/lib/intake/external-processing";
+import { pickSupportedEvidenceProfile } from "@/lib/intake/evidence-profile";
 import { createEvidenceOnlyFounderProfile } from "@/lib/intake/profile-normalization";
 import type { DiscoveryRecommendation } from "@/lib/opportunity-discovery";
 import type {
   GovernmentSourceSearchResult,
   SourceSearchSummary,
 } from "@/lib/opportunity-search";
-import type { HistoricalAwardRecord } from "@/lib/sources/source-contracts";
+import {
+  WorkspaceClientError,
+  createWorkspaceClient,
+  type WorkspaceClientCredentials,
+} from "@/lib/persistence/workspace-client";
+import type {
+  HistoricalAwardRecord,
+  ProgramContextRecord,
+} from "@/lib/sources/source-contracts";
 import {
   hydrateWorkspace,
   setChecklistItem,
@@ -18,6 +34,7 @@ type Stage = "intake" | "review" | "results" | "workspace";
 type IntakeMethod = "website" | "document" | "manual";
 type FitTier = "Likely Fit" | "Potential Fit" | "Adjacent";
 type Decision = "Pursue now" | "Verify first" | "Partner-dependent" | "Watch" | "Skip";
+type SaveMode = "saving" | "device-only" | "durable";
 
 type CompanyProfile = {
   companyName: string;
@@ -68,19 +85,26 @@ type RankedOpportunityCard = OpportunityCard & {
 };
 
 type WebsiteResponse = {
-  profile?: Partial<CompanyProfile> & {
-    companyName?: string;
-    website?: string;
-    description?: string;
-    industry?: string;
-    technology?: string;
-  };
-  evidence?: Array<{ field: string; value: string; sourceUrl: string }>;
+  profile?: unknown;
+  evidence?: Array<{
+    field: string;
+    value: string;
+    sourceUrl: string;
+    evidenceExcerpt?: string;
+  }>;
   retrievedAt?: string;
   warning?: string;
   error?: string;
   fallback?: string;
+  externalProcessing?: {
+    attempted: boolean;
+    completed: boolean;
+    reason: string | null;
+  };
+  externalProcessingDisclosure?: string;
 };
+
+type EvidenceResponse = WebsiteResponse;
 
 type SourceHealth = {
   status: "idle" | "checking" | "live" | "cached" | "cached-fallback" | "unavailable";
@@ -241,12 +265,76 @@ const INITIAL_CHECKLIST = [
 ];
 
 const STORAGE_KEY = "government-opportunity-map-workspace-v1";
+const WORKSPACE_CLIENT = createWorkspaceClient();
+const SAVE_MODE_CONTENT: Record<
+  SaveMode,
+  { announcement: string; label: string; dotClassName: string }
+> = {
+  saving: {
+    announcement: "Saving workspace on this device",
+    label: "Saving on this device",
+    dotClassName: "bg-[#d1a24b]",
+  },
+  "device-only": {
+    announcement: "Workspace saved on this device only",
+    label: "Device-only save",
+    dotClassName: "bg-[#d1a24b]",
+  },
+  durable: {
+    announcement: "Workspace saved durably",
+    label: "Durable save",
+    dotClassName: "bg-[#4c9b67]",
+  },
+};
+const PROGRAM_SNAPSHOT_LABELS: Record<
+  ProgramContextRecord["source"]["snapshotStatus"],
+  string
+> = {
+  live: "Live official program record",
+  cached_official_snapshot: "Official cached program record",
+  cached_demo_snapshot: "Audited fallback program record",
+};
+
+interface StoredWorkbenchSnapshot {
+  stage?: Stage;
+  profile?: CompanyProfile;
+  selectedOpportunityId?: string;
+  workspace?: WorkspaceState;
+  sourceEvidence?: string[];
+  matches?: RankedOpportunityCard[];
+  programs?: ProgramContextRecord[];
+  historicalAwards?: HistoricalAwardRecord[];
+  sourceSummaries?: SourceSearchSummary[];
+  durableWorkspace?: WorkspaceClientCredentials;
+}
 
 function profileFromText(text: string): CompanyProfile {
   return {
     ...EMPTY_PROFILE,
     ...createEvidenceOnlyFounderProfile(text),
   };
+}
+
+function intakeResultMessage(result: EvidenceResponse) {
+  if (result.externalProcessing?.completed) {
+    return result.warning
+      ?? "OpenAI suggestions were extracted from the supplied evidence. Confirm every field before matching.";
+  }
+  const reason = result.externalProcessing?.reason;
+  const suffix = reason ? ` Status: ${reason.replaceAll("_", " ")}.` : "";
+  return `${result.warning ?? "Continue with the editable evidence-only profile."}${suffix}`;
+}
+
+function clearStoredDurableCredentials() {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (!stored) return;
+    const parsed = JSON.parse(stored) as StoredWorkbenchSnapshot;
+    delete parsed.durableWorkspace;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
 }
 
 function StepRail({ stage }: { stage: Stage }) {
@@ -280,7 +368,14 @@ function StepRail({ stage }: { stage: Stage }) {
   );
 }
 
-function AppHeader({ onReset, saved }: { onReset: () => void; saved: boolean }) {
+function AppHeader({
+  onReset,
+  saveMode,
+}: {
+  onReset: () => void;
+  saveMode: SaveMode;
+}) {
+  const saveContent = SAVE_MODE_CONTENT[saveMode];
   return (
     <header className="sticky top-0 z-30 border-b border-[#17211b]/10 bg-[#f4f2eb]/92 backdrop-blur-xl">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-8 lg:px-12">
@@ -292,10 +387,10 @@ function AppHeader({ onReset, saved }: { onReset: () => void; saved: boolean }) 
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <span aria-live="polite" className="sr-only">{saved ? "Workspace saved on this device" : "Saving workspace"}</span>
-          <span aria-hidden="true" className="hidden items-center gap-2 text-xs text-[#667169] sm:flex" title={saved ? "Workspace saved on this device" : "Saving workspace"}>
-            <span className={`h-2.5 w-2.5 rounded-full ${saved ? "bg-[#4c9b67]" : "bg-[#d1a24b]"}`} />
-            {saved ? "Saved on this device" : "Saving workspace"}
+          <span aria-live="polite" className="sr-only">{saveContent.announcement}</span>
+          <span aria-hidden="true" className="hidden items-center gap-2 text-xs text-[#667169] sm:flex" title={saveContent.announcement}>
+            <span className={`h-2.5 w-2.5 rounded-full ${saveContent.dotClassName}`} />
+            {saveContent.label}
           </span>
           <button
             type="button"
@@ -383,6 +478,8 @@ export default function OpportunityWorkbench() {
   const [stage, setStage] = useState<Stage>("intake");
   const [method, setMethod] = useState<IntakeMethod>("website");
   const [profile, setProfile] = useState<CompanyProfile>(EMPTY_PROFILE);
+  const [externalProcessingConsent, setExternalProcessingConsent] =
+    useState(false);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [manualText, setManualText] = useState("");
   const [documentName, setDocumentName] = useState("");
@@ -393,80 +490,211 @@ export default function OpportunityWorkbench() {
   const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
   const [checklistByOpportunity, setChecklistByOpportunity] = useState<WorkspaceState["checklistByOpportunity"]>({});
   const [hydrated, setHydrated] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [grantsHealth, setGrantsHealth] = useState<SourceHealth>({ status: "idle", message: "" });
   const [spendingHealth, setSpendingHealth] = useState<SourceHealth>({ status: "idle", message: "" });
   const [matches, setMatches] = useState<RankedOpportunityCard[]>([]);
+  const [programs, setPrograms] = useState<ProgramContextRecord[]>([]);
   const [historicalAwards, setHistoricalAwards] = useState<HistoricalAwardRecord[]>([]);
   const [sourceSummaries, setSourceSummaries] = useState<SourceSearchSummary[]>([]);
   const [searchStatus, setSearchStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [durableCredentials, setDurableCredentials] =
+    useState<WorkspaceClientCredentials | null>(null);
+  const [durableUnavailable, setDurableUnavailable] = useState(false);
+  const [durableSaved, setDurableSaved] = useState(false);
+  const durableCredentialsRef = useRef<WorkspaceClientCredentials | null>(null);
+  const durableUnavailableRef = useRef(false);
+  const durableSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const durableGenerationRef = useRef(0);
+  const lastSyncedPayloadRef = useRef("");
 
   useEffect(() => {
+    let active = true;
     const timeout = window.setTimeout(() => {
-      try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as {
-            stage?: Stage;
-            profile?: CompanyProfile;
-            selectedOpportunityId?: string;
-            workspace?: WorkspaceState;
-            sourceEvidence?: string[];
-            matches?: RankedOpportunityCard[];
-            historicalAwards?: HistoricalAwardRecord[];
-            sourceSummaries?: SourceSearchSummary[];
-          };
+      void (async () => {
+        try {
+          const stored = window.localStorage.getItem(STORAGE_KEY);
+          if (!stored) return;
+          const parsed = JSON.parse(stored) as StoredWorkbenchSnapshot;
           if (parsed.profile) setProfile({ ...EMPTY_PROFILE, ...parsed.profile });
           if (parsed.stage) setStage(parsed.stage);
-          const workspace = hydrateWorkspace(parsed.workspace ? JSON.stringify(parsed.workspace) : null);
+          const workspace = hydrateWorkspace(
+            parsed.workspace ? JSON.stringify(parsed.workspace) : null,
+          );
           setSelectedOpportunityId(workspace.selectedOpportunityId);
           setChecklistByOpportunity(workspace.checklistByOpportunity);
           if (parsed.sourceEvidence) setSourceEvidence(parsed.sourceEvidence);
           if (parsed.matches) setMatches(parsed.matches);
-          if (parsed.historicalAwards) setHistoricalAwards(parsed.historicalAwards);
-          if (parsed.sourceSummaries) setSourceSummaries(parsed.sourceSummaries);
+          if (parsed.programs) setPrograms(parsed.programs);
+          if (parsed.historicalAwards) {
+            setHistoricalAwards(parsed.historicalAwards);
+          }
+          if (parsed.sourceSummaries) {
+            setSourceSummaries(parsed.sourceSummaries);
+          }
+
+          const credentials = parsed.durableWorkspace;
+          if (
+            !credentials
+            || typeof credentials.workspaceId !== "string"
+            || !credentials.workspaceId
+            || typeof credentials.accessToken !== "string"
+            || !credentials.accessToken
+          ) {
+            return;
+          }
+          durableCredentialsRef.current = credentials;
+          setDurableCredentials(credentials);
+          try {
+            const remote = await WORKSPACE_CLIENT.get(credentials);
+            if (!active) return;
+            setSelectedOpportunityId(remote.workspace.selectedOpportunityId);
+            setChecklistByOpportunity(
+              remote.workspace.checklistByOpportunity,
+            );
+            setProfile((current) => ({
+              ...current,
+              founderName: remote.founderContact.name,
+              founderRole: remote.founderContact.role,
+              founderEmail: remote.founderContact.email,
+            }));
+            lastSyncedPayloadRef.current = JSON.stringify({
+              workspace: remote.workspace,
+              founderContact: remote.founderContact,
+            });
+            setDurableSaved(true);
+          } catch (error) {
+            if (!active || !(error instanceof WorkspaceClientError)) return;
+            if (error.status === 401) {
+              durableCredentialsRef.current = null;
+              setDurableCredentials(null);
+              clearStoredDurableCredentials();
+            } else if (error.status === 503) {
+              durableUnavailableRef.current = true;
+              setDurableUnavailable(true);
+            }
+            setDurableSaved(false);
+          }
+        } catch {
+          window.localStorage.removeItem(STORAGE_KEY);
+        } finally {
+          if (active) setHydrated(true);
         }
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } finally {
-        setHydrated(true);
-      }
+      })();
     }, 0);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    const timeout = window.setTimeout(() => {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          stage,
-          profile,
-          workspace: {
-            version: 2,
-            selectedOpportunityId,
-            checklistByOpportunity,
-          },
-          sourceEvidence,
-          matches,
-          historicalAwards,
-          sourceSummaries,
-        }),
-      );
-      setSaved(true);
-    }, 180);
-    return () => window.clearTimeout(timeout);
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        stage,
+        profile,
+        workspace: {
+          version: 2,
+          selectedOpportunityId,
+          checklistByOpportunity,
+        },
+        sourceEvidence,
+        matches,
+        programs,
+        historicalAwards,
+        sourceSummaries,
+        durableWorkspace: durableCredentials ?? undefined,
+      }),
+    );
   }, [
     checklistByOpportunity,
+    durableCredentials,
     historicalAwards,
     hydrated,
     matches,
     profile,
+    programs,
     selectedOpportunityId,
     sourceEvidence,
     sourceSummaries,
     stage,
+  ]);
+
+  useEffect(() => {
+    if (!hydrated || durableUnavailable) return;
+    const input = {
+      workspace: {
+        version: 2 as const,
+        selectedOpportunityId,
+        checklistByOpportunity,
+      },
+      founderContact: {
+        name: profile.founderName,
+        role: profile.founderRole,
+        email: profile.founderEmail,
+      },
+    };
+    const payload = JSON.stringify(input);
+    if (payload === lastSyncedPayloadRef.current) return;
+    const generation = durableGenerationRef.current;
+
+    const timeout = window.setTimeout(() => {
+      durableSyncQueueRef.current = durableSyncQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (
+            generation !== durableGenerationRef.current
+            ||
+            durableUnavailableRef.current
+            || payload === lastSyncedPayloadRef.current
+          ) {
+            return;
+          }
+          setDurableSaved(false);
+          try {
+            const credentials = durableCredentialsRef.current;
+            if (credentials) {
+              await WORKSPACE_CLIENT.put(credentials, input);
+            } else {
+              const created = await WORKSPACE_CLIENT.create(input);
+              if (generation !== durableGenerationRef.current) return;
+              const credentials = {
+                workspaceId: created.workspaceId,
+                accessToken: created.accessToken,
+              };
+              durableCredentialsRef.current = credentials;
+              setDurableCredentials(credentials);
+            }
+            if (generation !== durableGenerationRef.current) return;
+            lastSyncedPayloadRef.current = payload;
+            setDurableSaved(true);
+          } catch (error) {
+            if (generation !== durableGenerationRef.current) return;
+            setDurableSaved(false);
+            if (!(error instanceof WorkspaceClientError)) return;
+            if (error.status === 401) {
+              durableCredentialsRef.current = null;
+              setDurableCredentials(null);
+              lastSyncedPayloadRef.current = "";
+              clearStoredDurableCredentials();
+            } else if (error.status === 503) {
+              durableUnavailableRef.current = true;
+              setDurableUnavailable(true);
+            }
+          }
+        });
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [
+    checklistByOpportunity,
+    durableCredentials,
+    durableUnavailable,
+    hydrated,
+    profile.founderEmail,
+    profile.founderName,
+    profile.founderRole,
+    selectedOpportunityId,
   ]);
 
   const currentNoticeCount = matches.filter((item) => item.sourceKind !== "Program route").length;
@@ -504,11 +732,17 @@ export default function OpportunityWorkbench() {
     ? Math.round((knownApplicationFieldCount / applicationFieldStatus.length) * 100)
     : 0;
   const nextChecklistItem = INITIAL_CHECKLIST.find((item) => !activeChecklist[item.id]) ?? null;
+  const saveMode: SaveMode = durableSaved
+    ? "durable"
+    : hydrated
+      ? "device-only"
+      : "saving";
 
   function resetWorkspace() {
     window.localStorage.removeItem(STORAGE_KEY);
     setStage("intake");
     setProfile(EMPTY_PROFILE);
+    setExternalProcessingConsent(false);
     setWebsiteUrl("");
     setManualText("");
     setDocumentName("");
@@ -518,40 +752,65 @@ export default function OpportunityWorkbench() {
     setChecklistByOpportunity({});
     setIntakeMessage("");
     setMatches([]);
+    setPrograms([]);
     setHistoricalAwards([]);
     setSourceSummaries([]);
     setSearchStatus("idle");
     setGrantsHealth({ status: "idle", message: "" });
     setSpendingHealth({ status: "idle", message: "" });
+    durableCredentialsRef.current = null;
+    setDurableCredentials(null);
+    durableUnavailableRef.current = false;
+    setDurableUnavailable(false);
+    durableGenerationRef.current += 1;
+    lastSyncedPayloadRef.current = "";
+    setDurableSaved(false);
   }
 
   async function analyzeWebsite(event: FormEvent) {
     event.preventDefault();
+    if (!externalProcessingConsent) {
+      setIntakeStatus("error");
+      setIntakeMessage("Consent is required before supplied evidence is sent to OpenAI.");
+      return;
+    }
     setIntakeStatus("loading");
     setIntakeMessage("");
     try {
       const response = await fetch("/api/intake/website", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: websiteUrl }),
+        body: JSON.stringify({
+          url: websiteUrl,
+          externalProcessingConsent: true,
+        }),
       });
       const result = (await response.json()) as WebsiteResponse;
       if (!response.ok || !result.profile) throw new Error(result.error ?? result.fallback ?? "Website review failed.");
+      const suggestions = pickSupportedEvidenceProfile(result.profile);
+      const website = result.profile
+        && typeof result.profile === "object"
+        && !Array.isArray(result.profile)
+        && typeof (result.profile as Record<string, unknown>).website === "string"
+        ? String((result.profile as Record<string, unknown>).website)
+        : websiteUrl.trim();
       const nextProfile: CompanyProfile = {
         ...EMPTY_PROFILE,
-        ...result.profile,
+        ...suggestions,
+        website,
         applicantType: "Unknown — founder input needed",
         ownership: "Unknown — founder input needed",
         samStatus: "Unknown",
       };
       setProfile(nextProfile);
       setMatches([]);
+      setPrograms([]);
       setHistoricalAwards([]);
       setSourceSummaries([]);
       setSourceEvidence(
         (result.evidence ?? []).map((item) => `${item.field}: extracted from ${new URL(item.sourceUrl).hostname}`),
       );
-      setIntakeMessage(result.warning ?? "Website facts extracted. Confirm them before matching.");
+      setIntakeMessage(intakeResultMessage(result));
       setStage("review");
       setIntakeStatus("idle");
     } catch (error) {
@@ -560,21 +819,62 @@ export default function OpportunityWorkbench() {
     }
   }
 
-  function beginManual(event: FormEvent) {
+  async function submitEvidence(event: FormEvent) {
     event.preventDefault();
+    if (!externalProcessingConsent) {
+      setIntakeStatus("error");
+      setIntakeMessage("Consent is required before supplied evidence is sent to OpenAI.");
+      return;
+    }
     if (manualText.trim().length < 35) {
       setIntakeStatus("error");
       setIntakeMessage("Add a few sentences about the product, customers, location, and planned use of funds.");
       return;
     }
-    setProfile(profileFromText(manualText.trim()));
-    setMatches([]);
-    setHistoricalAwards([]);
-    setSourceSummaries([]);
-    setSourceEvidence(["Company description: provided directly by the founder."]);
-    setIntakeStatus("idle");
+    setIntakeStatus("loading");
     setIntakeMessage("");
-    setStage("review");
+    const sourceType = method === "document" ? "pdf" : "manual";
+    try {
+      const response = await fetch("/api/intake/evidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceType,
+          evidenceText: manualText.trim(),
+          externalProcessingConsent: true,
+        }),
+      });
+      const result = (await response.json()) as EvidenceResponse;
+      if (!response.ok || !result.profile) {
+        throw new Error(
+          result.error ?? result.fallback ?? "Evidence review failed.",
+        );
+      }
+      setProfile({
+        ...profileFromText(manualText.trim()),
+        ...pickSupportedEvidenceProfile(result.profile),
+      });
+      setMatches([]);
+      setPrograms([]);
+      setHistoricalAwards([]);
+      setSourceSummaries([]);
+      setSourceEvidence(
+        result.evidence?.length
+          ? result.evidence.map((item) =>
+            `${item.field}: supported by submitted ${sourceType} evidence.`)
+          : [`Company description: provided through ${sourceType} evidence.`],
+      );
+      setIntakeStatus("idle");
+      setIntakeMessage(intakeResultMessage(result));
+      setStage("review");
+    } catch (error) {
+      setIntakeStatus("error");
+      setIntakeMessage(
+        error instanceof Error
+          ? error.message
+          : "Continue with a plain-language company description.",
+      );
+    }
   }
 
   async function handleDocument(event: ChangeEvent<HTMLInputElement>) {
@@ -624,6 +924,7 @@ export default function OpportunityWorkbench() {
       const result = (await response.json()) as GovernmentSourceSearchResult & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Government source search failed.");
       setMatches(result.discovery.recommendations.map(mapDiscoveryRecommendation));
+      setPrograms([...result.discovery.programs]);
       setHistoricalAwards([...result.discovery.historicalAwards]);
       setSourceSummaries([...result.sources]);
       const grants = result.sources.find((source) => source.family === "grants");
@@ -640,6 +941,7 @@ export default function OpportunityWorkbench() {
       setStage("results");
     } catch (error) {
       setMatches([]);
+      setPrograms([]);
       setHistoricalAwards([]);
       setSourceSummaries([]);
       setGrantsHealth({
@@ -661,7 +963,7 @@ export default function OpportunityWorkbench() {
 
   return (
     <main className="app-shell min-h-screen overflow-x-hidden text-[#17211b]">
-      <AppHeader onReset={resetWorkspace} saved={saved} />
+      <AppHeader onReset={resetWorkspace} saveMode={saveMode} />
       <div className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-8 sm:pb-20 sm:pt-7 lg:px-12">
         <StepRail stage={stage} />
 
@@ -711,6 +1013,23 @@ export default function OpportunityWorkbench() {
                   ))}
                 </div>
 
+                <div className="mt-5 rounded-2xl border border-[#d5c58f]/55 bg-[#fff9e9] p-4 text-sm leading-6 text-[#66531c]">
+                  <p className="font-bold">OpenAI processing disclosure</p>
+                  <p className="mt-1 text-xs leading-5">{EXTERNAL_PROCESSING_DISCLOSURE}</p>
+                  <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl bg-white/75 px-3 py-3 text-xs font-semibold leading-5">
+                    <input
+                      type="checkbox"
+                      checked={externalProcessingConsent}
+                      onChange={(event) => {
+                        setExternalProcessingConsent(event.target.checked);
+                        setIntakeMessage("");
+                      }}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#2f704a]"
+                    />
+                    <span>I consent to this processing for the evidence I submit.</span>
+                  </label>
+                </div>
+
                 {method === "website" && (
                   <form onSubmit={analyzeWebsite} className="mt-7">
                     <label htmlFor="website-url" className="text-xs font-bold uppercase tracking-[0.13em] text-[#647067]">Public HTTPS company website</label>
@@ -725,7 +1044,7 @@ export default function OpportunityWorkbench() {
                     />
                     <button
                       type="submit"
-                      disabled={intakeStatus === "loading"}
+                      disabled={!externalProcessingConsent || intakeStatus === "loading"}
                       className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
                     >
                       {intakeStatus === "loading" ? "Reviewing public website…" : "Build a reviewable profile"}
@@ -740,11 +1059,11 @@ export default function OpportunityWorkbench() {
                       <input type="file" accept="application/pdf,.pdf" className="sr-only" onChange={handleDocument} />
                       <span className="grid h-11 w-11 place-items-center rounded-full bg-[#dff2e4] text-xl font-semibold text-[#205d3a]">+</span>
                       <span className="mt-4 text-sm font-bold">Choose one PDF one-pager</span>
-                      <span className="mt-1 text-xs text-[#748077]">Up to 10 MB. Nothing is submitted to a government system.</span>
+                      <span className="mt-1 text-xs text-[#748077]">Up to 10 MB. Only extracted or pasted text is sent; the PDF binary stays in this browser.</span>
                     </label>
                     {documentName && <p className="mt-3 text-sm font-semibold text-[#315d43]">Attached: {documentName}</p>}
                     {documentMessage && <p className="mt-2 text-xs leading-5 text-[#6b756e]">{documentMessage}</p>}
-                    <form onSubmit={beginManual} className="mt-5">
+                    <form onSubmit={submitEvidence} className="mt-5">
                       <label htmlFor="document-summary" className="text-xs font-bold uppercase tracking-[0.13em] text-[#647067]">Extracted or pasted company summary</label>
                       <textarea
                         id="document-summary"
@@ -754,15 +1073,19 @@ export default function OpportunityWorkbench() {
                         placeholder="Paste the one-pager text here if the PDF is image-based."
                         className="mt-2 w-full rounded-2xl border border-[#17211b]/12 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#3f7d59] focus:ring-4 focus:ring-[#3f7d59]/10"
                       />
-                      <button type="submit" className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white hover:bg-[#214f39]">
-                        Review extracted profile
+                      <button
+                        type="submit"
+                        disabled={!externalProcessingConsent || intakeStatus === "loading"}
+                        className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
+                      >
+                        {intakeStatus === "loading" ? "Reviewing PDF evidence…" : "Review extracted profile"}
                       </button>
                     </form>
                   </div>
                 )}
 
                 {method === "manual" && (
-                  <form onSubmit={beginManual} className="mt-7">
+                  <form onSubmit={submitEvidence} className="mt-7">
                     <label htmlFor="manual-summary" className="text-xs font-bold uppercase tracking-[0.13em] text-[#647067]">Plain-language company description</label>
                     <textarea
                       id="manual-summary"
@@ -772,8 +1095,12 @@ export default function OpportunityWorkbench() {
                       placeholder="We’re a Utah company building… We sell to… We need funding for…"
                       className="mt-2 w-full rounded-2xl border border-[#17211b]/12 bg-white px-4 py-4 text-sm leading-6 outline-none focus:border-[#3f7d59] focus:ring-4 focus:ring-[#3f7d59]/10"
                     />
-                    <button type="submit" className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white hover:bg-[#214f39]">
-                      Turn this into a profile
+                    <button
+                      type="submit"
+                      disabled={!externalProcessingConsent || intakeStatus === "loading"}
+                      className="mt-4 w-full rounded-2xl bg-[#173d2c] px-5 py-4 text-sm font-bold text-white hover:bg-[#214f39] disabled:cursor-wait disabled:opacity-65"
+                    >
+                      {intakeStatus === "loading" ? "Reviewing supplied evidence…" : "Turn this into a profile"}
                     </button>
                   </form>
                 )}
@@ -1028,6 +1355,40 @@ export default function OpportunityWorkbench() {
               </div>
             )}
 
+            <section aria-labelledby="program-context-heading" className="mt-8 rounded-[1.75rem] border border-[#17211b]/10 bg-[#f7f5ee] p-6 sm:p-7">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#667169]">Program context</p>
+                  <h2 id="program-context-heading" className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Understand the program behind a notice</h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#59655e]">Assistance Listings explain a federal program’s purpose. They are background only and are never presented as an open funding opportunity.</p>
+                </div>
+                <span className="w-fit shrink-0 rounded-full bg-[#fff1ce] px-3 py-1.5 text-xs font-bold text-[#735511]">Not open funding</span>
+              </div>
+              {programs.length ? (
+                <div className="mt-6 grid gap-4">
+                  {programs.map((program) => (
+                    <article key={program.id} className="rounded-2xl border border-[#17211b]/10 bg-white p-5 sm:p-6">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-[#eef1ed] px-3 py-1 text-[11px] font-bold text-[#526058]">ALN {program.assistanceListing}</span>
+                        <span className="rounded-full border border-[#17211b]/10 bg-white px-3 py-1 text-[11px] font-bold text-[#526058]">{PROGRAM_SNAPSHOT_LABELS[program.source.snapshotStatus]}</span>
+                      </div>
+                      <p className="mt-4 text-xs font-bold uppercase tracking-[0.13em] text-[#47795b]">{program.agency}</p>
+                      <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{program.title}</h3>
+                      <p className="mt-3 text-sm leading-6 text-[#59655e]">{program.objective || "The official source did not provide a program objective."}</p>
+                      <div className="mt-5 flex flex-col gap-3 border-t border-[#17211b]/8 pt-4 text-xs text-[#778179] sm:flex-row sm:items-center sm:justify-between">
+                        <p>{program.source.sourceName} · Source ID {program.source.sourceId} · Retrieved {displayDate(program.source.retrievedAt)}</p>
+                        <a href={program.source.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[#17211b]/12 bg-white px-4 py-2 font-bold text-[#315d43]">Open official program record</a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-6 rounded-2xl border border-[#17211b]/8 bg-white px-5 py-4 text-sm leading-6 text-[#59655e]">
+                  No supported program-context record is available for this search. No program is being substituted for an open notice.
+                </div>
+              )}
+            </section>
+
             {historicalAward ? (
               <div className="mt-8 overflow-hidden rounded-[1.75rem] border border-[#17211b]/10 bg-[#eef1ed]">
                 <div className="grid lg:grid-cols-[0.7fr_0.3fr]">
@@ -1100,7 +1461,13 @@ export default function OpportunityWorkbench() {
                 <div className="mt-5 flex flex-wrap gap-2">
                   <span className="rounded-full bg-[#edf5ef] px-3 py-1.5 text-xs font-bold text-[#315d43]">{knownApplicationFieldCount} of {applicationFieldStatus.length} prefill fields ready</span>
                   <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#59655e]">{completedCount} of {INITIAL_CHECKLIST.length} tasks complete</span>
-                  <span className="rounded-full border border-[#17211b]/10 bg-white/55 px-3 py-1.5 text-xs font-bold text-[#59655e]">Saved privately on this device</span>
+                  <span className="rounded-full border border-[#17211b]/10 bg-white/55 px-3 py-1.5 text-xs font-bold text-[#59655e]">
+                    {saveMode === "durable"
+                      ? "Saved durably"
+                      : saveMode === "device-only"
+                        ? "Saved privately on this device only"
+                        : "Saving privately on this device"}
+                  </span>
                 </div>
               </div>
               <button type="button" onClick={() => setStage("results")} className="min-h-11 w-fit rounded-full border border-[#17211b]/12 bg-white px-4 py-2.5 text-sm font-bold transition hover:border-[#173d2c]/30 hover:bg-[#f9faf7]">Back to opportunity map</button>

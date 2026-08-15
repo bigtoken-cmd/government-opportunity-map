@@ -11,9 +11,9 @@ This is the authoritative solution, decision, and checklist document. Status lab
 | Live Grants.gov and USAspending retrieval | Implemented | Adapters support live retrieval and role-specific official fallbacks; fresh live execution must be recorded per verification run. |
 | Assistance Listings bulk retrieval | Implemented | Conditional ingestion, CSV normalization, compact lookup, provenance, and last-valid fallback are tested against the official public SAM.gov Assistance Listings extract. A deployed scheduler/store remains Planned. |
 | SBIR bulk retrieval | Implemented | Conditional monthly ingestion, streaming normalization, compact historical lookup, and honest empty fallback are tested against the official public SBIR award extract. Awards never become current solicitations. |
-| Model integration | Implemented | GPT-5.6 Luna (`gpt-5.6-luna`) is consent-gated and server-only for structured evidence extraction. Strict sanitization, schema/evidence validation, timeout/error fallback, and `store: false` are tested; a real credentialed call remains Blocked. |
-| Persistence logic | Implemented | Opaque workspace credentials, token hashing, bounded persisted fields, opportunity-scoped persistence logic, and an unavailable-by-default API route are tested. |
-| Durable D1 deployment | Planned | A deployed D1 binding is not configured; production persistence verification remains Blocked. |
+| Model integration | Implemented | GPT-5.6 Luna (`gpt-5.6-luna`) is consent-gated and server-only for website, manual, and extracted/pasted PDF evidence. Strict sanitization, schema/evidence validation, timeout/error fallback, `store: false`, the shared disclosure, and route size bounds are tested; a real credentialed call remains Blocked. |
+| Persistence logic | Implemented | Opaque workspace credentials, token hashing, bounded persisted fields, opportunity-scoped persistence logic, a prepared-statement D1 adapter/migration, runtime binding detection, and the client fallback contract are tested. |
+| Durable D1 deployment | Planned / Blocked | `WORKSPACE_DB` has no deployed resource binding or database ID; migration application and production persistence verification remain Blocked. |
 
 ## P0 solution contract
 
@@ -29,7 +29,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 - Deterministic code exclusively owns source verification, eligibility, disqualifiers, scores, deadlines, historical totals, and result decisions. A wording pass may not add or change facts, evidence IDs, sources, dates, amounts, scores, eligibility, or decisions; it falls back to deterministic wording.
 - **Implemented:** GPT-5.6 Luna (`gpt-5.6-luna`) is the single app API model for server-side extraction. Every call requires explicit external-processing consent, removes obvious submitted credential values, sends `store: false`, accepts only a strict completed response shape, and falls back deterministically.
 - `OPENAI_API_KEY` is server-only: `.env.local` locally and a Cloudflare secret in production. Never use `NEXT_PUBLIC_*`, print, read, store, or commit a value. **Blocked:** secret presence and a real model response remain externally unverified.
-- Raw website, manual, and PDF evidence is not logged or persisted server-side. The founder-facing UI must disclose OpenAI processing and send `externalProcessingConsent: true`; without it, intake stays deterministic.
+- Raw website, manual, and PDF evidence is not logged or persisted server-side. **Implemented:** the founder-facing UI shows the shared OpenAI disclosure, requires explicit consent, and sends `externalProcessingConsent: true`; manual/PDF provider failure returns an editable deterministic profile with honest status.
 
 ## Four official source roles and status
 
@@ -53,7 +53,8 @@ This is the authoritative solution, decision, and checklist document. Status lab
 
 - **Implemented:** the workspace state is versioned and opportunity-scoped; source-backed fields can prefill supported application information while unsupported fields remain blank founder questions. Direct government-form submission is not allowed.
 - **Implemented:** founder contact remains outside matching, opaque workspace credentials are isolated, stores receive token hashes only, and persistence rejects prototype-polluting checklist keys.
-- **Planned:** bind the unavailable-by-default workspace API to D1 and wire the UI to it. Do not claim durable production persistence before the binding and browser round trip are evidenced.
+- **Implemented:** the UI stores opaque credentials locally, restores durable checklist/contact state, creates or updates through `/api/workspace`, removes invalid credentials on 401, stops retrying after 503, and labels device-only versus durable save mode honestly. The route selects the D1 prepared-statement store only when `WORKSPACE_DB` exists.
+- **Planned / Blocked:** create and bind the D1 resource, apply `migrations/0001_workspace.sql`, and evidence a production browser round trip before claiming deployed durability.
 - **Implemented:** a deterministic explanation object carries matched groups, eligibility checks, reason, and source provenance. **Planned:** optional constrained model wording, with deterministic fallback.
 
 ## Verification gate
@@ -64,7 +65,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 | Fixture and reward-hacking boundary | Verified | Fixtures are verifier-only; no case-specific production outputs are allowed. Calibration metrics now consume actual cached production recommendations rather than locally re-scoring labels. |
 | Source-state honesty | Verified | Tests distinguish valid empty, malformed, cached, cached-fallback, unavailable, and source-role behavior. |
 | Local/cached/live fallback | Implemented | Grants.gov and USAspending preserve live/fallback states; Assistance Listings and SBIR scheduled ingestors preserve last-valid official snapshots without calling them live. |
-| Route contracts | Verified | Search and workspace response shapes are frozen; website intake invokes Luna only with explicit consent and returns disclosure/status fields while existing no-consent clients remain deterministic. |
+| Route contracts | Verified | Search and workspace response shapes are frozen; website compatibility is preserved, manual/PDF intake enforces consent and byte bounds, and focused tests cover extraction fallback, client bearer credentials, D1 behavior, and binding selection. |
 | Browser and reload matrix | Blocked | Observe direct URL, soft navigation, hard reload, cached versus fresh display, desktop, and mobile. Verify state transition from initial workspace to checklist change to reload. |
 | Cloudflare production verification | Blocked | Verify deployment, secret binding without exposing it, source states, and browser matrix in production. |
 | Combined-main automated verification | Verified | The consolidated backend tree passed two consecutive 77/77 suites plus ESLint, TypeScript, production build, and diff check. |
@@ -74,13 +75,9 @@ This is the authoritative solution, decision, and checklist document. Status lab
 
 ### Jacob / UI and deployment
 
-- Add a clear disclosure before website, manual, or PDF submission: supplied evidence is sent to OpenAI for field suggestions, is not stored by this app, and never controls government facts or decisions.
-- Send `externalProcessingConsent: true` and consume the additive `externalProcessing` and `externalProcessingDisclosure` response fields.
-- Route manual and PDF evidence through the shared server-side Luna boundary; only website intake is currently wired to a route.
-- Render `discovery.programs` separately from current recommendations and historical awards.
-- Wire the founder workspace to `/api/workspace`, keeping local storage as the fallback.
-- Add the D1 binding, scheduled Assistance Listings/SBIR ingestion triggers and durable stores, and the server-only `OPENAI_API_KEY`.
-- Complete direct-visit, soft-navigation, hard-reload, cached/fresh, desktop/mobile, console/network, and checklist-persistence browser verification with screenshots.
+- **Implemented:** shared disclosure/consent, manual/PDF route wiring, separate program-context presentation, and durable-workspace client/local fallback.
+- Create and bind `WORKSPACE_DB`, apply the workspace migration, add scheduled Assistance Listings/SBIR deployment bindings and the server-only `OPENAI_API_KEY`.
+- Complete direct-visit, soft-navigation, hard-reload, cached/fresh, desktop/mobile, console/network, consent/fallback, and durable checklist-persistence browser verification with screenshots.
 
 ### Lincoln / integration
 
@@ -107,3 +104,10 @@ This is the authoritative solution, decision, and checklist document. Status lab
 - **Verified:** ESLint, TypeScript, the production build, and `git diff --check` passed after the consolidated final-review fixes.
 - **Verified:** fresh healthcare and advanced-manufacturing probes returned live Grants.gov and USAspending source states; scheduled Assistance Listings and SBIR stores were not configured and fell back honestly.
 - **Planned/Blocked:** durable D1 and scheduler deployment remain unconfigured and unverified. Browser, production, secret, and credentialed live-source/model checks remain Blocked.
+
+## P0 integration implementation — August 15, 2026
+
+- **Implemented:** consent-gated manual/PDF intake, the shared disclosure, supported profile-field merging, separate persisted program context, the D1 workspace adapter/migration, Cloudflare binding detection, client persistence, credential recovery, 503 suppression, and truthful save mode.
+- **Verified:** 26/26 focused integration tests passed for evidence intake, profile suggestion filtering, website compatibility/source roles, workspace route/service behavior, POST/GET/PUT client requests, bearer credentials, D1 prepared statements, and binding selection. The workbench file also passed focused ESLint.
+- **Planned / Blocked:** no D1 resource ID or `WORKSPACE_DB` binding exists, so migration application and production durability remain Blocked.
+- **Blocked:** browser screenshots/state transitions, deployment, Cloudflare/OpenAI secrets, and a credentialed Luna call remain externally unverified.
