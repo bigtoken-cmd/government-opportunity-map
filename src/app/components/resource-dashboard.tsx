@@ -82,9 +82,11 @@ export default function ResourceDashboard({
   savedOpportunityIds,
   checklistByOpportunity,
   sourceMessage,
+  searchError,
   onSavedChange,
   onChecklistChange,
   onEditProfile,
+  onRetry,
   onOpenWorkspace,
   onOpenSource,
 }: {
@@ -93,9 +95,11 @@ export default function ResourceDashboard({
   savedOpportunityIds: string[];
   checklistByOpportunity: Record<string, Record<string, boolean>>;
   sourceMessage: string;
+  searchError: string;
   onSavedChange: (ids: string[]) => void;
   onChecklistChange: (opportunityId: string, itemId: string, checked: boolean) => void;
   onEditProfile: () => void;
+  onRetry: () => void;
   onOpenWorkspace: (opportunity: RankedOpportunityCard) => void;
   onOpenSource: (opportunity: RankedOpportunityCard) => void;
 }) {
@@ -131,7 +135,8 @@ export default function ResourceDashboard({
   const visibleMatches = sortedMatches.slice(0, Math.min(visibleCount, 20));
   const savedMatches = savedOpportunityIds
     .map((id) => matches.find((match) => match.id === id))
-    .filter((match): match is RankedOpportunityCard => Boolean(match));
+    .filter((match): match is RankedOpportunityCard => Boolean(match))
+    .sort((left, right) => right.score - left.score);
 
   function toggleSaved(id: string) {
     onSavedChange(
@@ -153,20 +158,42 @@ export default function ResourceDashboard({
     <section className="dashboard-shell pt-8 sm:pt-10">
       <div className="dashboard-heading">
         <div>
-          <h1>{matches.length ? "Your strongest government opportunities" : "No strong match yet"}</h1>
+          <h1 data-stage-heading tabIndex={-1}>
+            {searchError
+              ? "We couldn’t complete the search"
+              : matches.length
+                ? "Your strongest government opportunities"
+                : "No strong match yet"}
+          </h1>
           <p>
-            {matches.length
+            {searchError
+              ? "Your confirmed profile is still here. Government sources did not return a complete search result."
+              : matches.length
               ? `${matches.length} defensible route${matches.length === 1 ? "" : "s"}, ranked for your confirmed profile.`
               : "The current records did not clear the relevance and eligibility gates for this profile."}
           </p>
         </div>
-        {tab !== "profile" && (
+        {!searchError && tab !== "profile" && (
           <button type="button" onClick={onEditProfile} className="secondary-button">
             Edit profile
           </button>
         )}
       </div>
 
+      {searchError ? (
+        <div className="dashboard-panel">
+          <div className="no-match-state" role="alert">
+            <h2>The search stopped before results were ready.</h2>
+            <p>{searchError}</p>
+            <p>No recommendations were removed from your profile, and this is not a no-match decision.</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button type="button" onClick={onRetry} className="primary-button">Try again</button>
+              <button type="button" onClick={onEditProfile} className="secondary-button">Edit profile</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       <nav className="dashboard-tabs" aria-label="Resource finder">
         <button type="button" aria-current={tab === "opportunities" ? "page" : undefined} onClick={() => setTab("opportunities")}>
           Opportunities
@@ -367,6 +394,8 @@ export default function ResourceDashboard({
             ))}
           </dl>
         </div>
+      )}
+        </>
       )}
     </section>
   );
