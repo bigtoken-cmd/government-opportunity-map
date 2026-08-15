@@ -310,7 +310,7 @@ test("a partial grouped-query failure does not hide validated live records", asy
   let grantsRequest = 0;
   const fetcher: typeof fetch = async (input) => {
     const url = String(input);
-    if (url.includes("grants.gov")) {
+    if (url.includes("api.grants.gov")) {
       grantsRequest += 1;
       return grantsRequest === 1
         ? Response.json({

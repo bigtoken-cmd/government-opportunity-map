@@ -15,10 +15,29 @@ import type {
   SourcedGovernmentRecord,
 } from "./sources/source-contracts";
 
+export interface ListingPrefillField {
+  label: string;
+  value: string;
+  note: string;
+  profileKey?: string;
+  sourceUrl?: string;
+}
+
+export interface SimilarOpportunityRef {
+  id: string;
+  opportunityNumber: string;
+  title: string;
+  agency: string;
+  sourceUrl: string;
+  retrievedAt: string;
+}
+
 export interface DiscoveryRecommendation {
   opportunity: Opportunity;
   match: MatchResult;
   intelligence: RecommendationIntelligence;
+  listingPrefillFields?: readonly ListingPrefillField[];
+  similarOpportunities?: readonly SimilarOpportunityRef[];
 }
 
 export interface DiscoveryResultMeta {

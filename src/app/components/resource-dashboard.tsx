@@ -402,6 +402,28 @@ export default function ResourceDashboard({
                               <p>{opportunity.nextAction}</p>
                             </ContextCard>
                             <ContextCard
+                              title="Related on Grants.gov"
+                              meta={opportunity.similarOpportunities?.length
+                                ? `${opportunity.similarOpportunities.length} official similar listing${opportunity.similarOpportunities.length === 1 ? "" : "s"}`
+                                : "No similar block"}
+                              wide
+                            >
+                              {opportunity.similarOpportunities?.length ? (
+                                <ul>
+                                  {opportunity.similarOpportunities.map((similar) => (
+                                    <li key={similar.id}>
+                                      <a href={similar.sourceUrl} className="underline" target="_blank" rel="noreferrer">
+                                        {similar.title || similar.opportunityNumber}
+                                      </a>
+                                      {similar.agency ? ` · ${similar.agency}` : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p>Grants.gov did not expose a similar-opportunity block for this notice.</p>
+                              )}
+                            </ContextCard>
+                            <ContextCard
                               title="Historical context"
                               meta={historicalEvidence.length
                                 ? `${historicalEvidence.length} related award${historicalEvidence.length === 1 ? "" : "s"}`

@@ -11,7 +11,6 @@ import {
 import { ThinkingOrb } from "thinking-orbs";
 import { pickSupportedEvidenceProfile } from "@/lib/intake/evidence-profile";
 import {
-  createEvidenceOnlyFounderProfile,
   type FounderProfileInput,
 } from "@/lib/intake/profile-normalization";
 import type { DiscoveryRecommendation } from "@/lib/opportunity-discovery";
@@ -43,7 +42,7 @@ type SaveMode = "saving" | "device-only" | "durable";
 type ReviewMode = "required" | "optional" | "confirm" | "save";
 
 type ProfileFieldOrigin = {
-  origin: "extracted" | "normalized" | "unknown" | "founder-confirmed";
+  origin: "extracted" | "normalized" | "unknown" | "founder-confirmed" | "inferred" | "summarized";
   sourceId?: string;
   sourceIds?: readonly string[];
   sourceTextOrigin?: string;
@@ -80,7 +79,19 @@ type OpportunityCard = {
   nextAction: string;
   historicalEvidence: string[];
   historicalLimitation: string;
-  applicationFields: Array<{ label: string; profileKey?: keyof CompanyProfile; note?: string }>;
+  similarOpportunities: Array<{
+    id: string;
+    title: string;
+    agency: string;
+    sourceUrl: string;
+    opportunityNumber: string;
+  }>;
+  applicationFields: Array<{
+    label: string;
+    profileKey?: keyof CompanyProfile;
+    note?: string;
+    value?: string;
+  }>;
 };
 
 export type RankedOpportunityCard = OpportunityCard & {
@@ -425,7 +436,23 @@ function mapDiscoveryRecommendation(
     nextAction: intelligence.nextAction.text,
     historicalEvidence,
     historicalLimitation: intelligence.historicalSupport?.limitation ?? "No opportunity-specific historical award was returned by this bounded search.",
-    applicationFields: COMMON_APPLICATION_FIELDS,
+    similarOpportunities: (recommendation.similarOpportunities ?? []).map((item) => ({
+      id: item.id,
+      title: item.title,
+      agency: item.agency,
+      sourceUrl: item.sourceUrl,
+      opportunityNumber: item.opportunityNumber,
+    })),
+    applicationFields: recommendation.listingPrefillFields?.length
+      ? recommendation.listingPrefillFields.map((field) => ({
+        label: field.label,
+        note: field.note,
+        value: field.value,
+        ...(field.profileKey && field.profileKey in EMPTY_PROFILE
+          ? { profileKey: field.profileKey as keyof CompanyProfile }
+          : {}),
+      }))
+      : COMMON_APPLICATION_FIELDS,
     score: match.effectiveScore ?? match.score.total,
     eligibilityChecks,
   };
@@ -491,7 +518,8 @@ function normalizedProfileOrigins(
   const origins: ProfileFieldOrigins = {};
   for (const key of Object.keys(profile) as Array<keyof CompanyProfile>) {
     const returned = raw[key];
-    if (returned?.origin === "extracted" || returned?.origin === "normalized") {
+    if (returned?.origin === "extracted" || returned?.origin === "normalized"
+      || returned?.origin === "inferred" || returned?.origin === "summarized") {
       origins[key] = returned;
     } else if (manualProfile && isSupportedProfileValue(manualProfile[key])) {
       origins[key] = { origin: "extracted", sourceId: "manual", sourceTextOrigin: "user-supplied" };
@@ -502,13 +530,6 @@ function normalizedProfileOrigins(
     }
   }
   return origins;
-}
-
-function profileFromText(text: string): CompanyProfile {
-  return {
-    ...EMPTY_PROFILE,
-    ...createEvidenceOnlyFounderProfile(text),
-  };
 }
 
 function intakeResultMessage(result: EvidenceResponse) {
@@ -850,10 +871,10 @@ function SearchExperience() {
         size={64}
         theme="light"
         className="search-thinking-orb"
-        aria-label="Searching current government opportunities"
+        aria-label="Researching current government opportunities"
       />
-      <h1 data-stage-heading tabIndex={-1}>Finding your strongest routes</h1>
-      <p>Searching current opportunities and checking fit…</p>
+      <h1 data-stage-heading tabIndex={-1}>Researching the strongest routes</h1>
+      <p>Searching official listings and filling application detail…</p>
     </section>
   );
 }
@@ -1216,7 +1237,8 @@ export default function OpportunityWorkbench() {
     : {};
   const completedCount = INITIAL_CHECKLIST.filter((item) => activeChecklist[item.id]).length;
   const applicationFieldStatus = selectedOpportunity?.applicationFields.map((field) => {
-    const value = field.profileKey ? profile[field.profileKey] : "";
+    const value = field.value
+      || (field.profileKey ? profile[field.profileKey] : "");
     return { ...field, value: String(value ?? ""), known: isSupportedProfileField(field.profileKey, value) };
   }) ?? [];
   const knownApplicationFieldCount = applicationFieldStatus.filter((field) => field.known).length;
@@ -1341,12 +1363,10 @@ export default function OpportunityWorkbench() {
         throw new Error(result.error ?? result.fallback ?? "Evidence review failed.");
       }
       const extractedProfile = pickSupportedEvidenceProfile(result.profile);
-      const manualProfile = hasEvidence ? profileFromText(manualText.trim()) : null;
       const nextProfile: CompanyProfile = {
         ...EMPTY_PROFILE,
-        ...(manualProfile ?? {}),
         ...extractedProfile,
-        website: websiteUrl.trim() || manualProfile?.website || "",
+        website: websiteUrl.trim(),
       };
       const sourceNames = new Map((result.sources ?? []).map((source) => [source.id, source.displayName]));
       const nextEvidence = result.evidence?.length
@@ -1369,7 +1389,7 @@ export default function OpportunityWorkbench() {
       setProfileFieldOrigins(normalizedProfileOrigins(
         result,
         displayProfile,
-        manualProfile,
+        null,
         hasWebsite,
       ));
       setReviewQuestionKeys(requiredQuestionKeys);
@@ -1394,8 +1414,7 @@ export default function OpportunityWorkbench() {
     }
   }
 
-  async function handleDocuments(event: ChangeEvent<HTMLInputElement>) {
-    const selected = [...(event.target.files ?? [])];
+  async function acceptFiles(selected: File[]) {
     if (!selected.length) return;
     const room = Math.max(0, 5 - uploadedFiles.length);
     const accepted = selected.slice(0, room);
@@ -1416,6 +1435,11 @@ export default function OpportunityWorkbench() {
     }
     setUploadedFiles((current) => [...current, ...nextFiles].slice(0, 5));
     if (nextFiles.length) setDocumentMessage(`${nextFiles.length} file${nextFiles.length === 1 ? "" : "s"} attached and ready for review.`);
+  }
+
+  async function handleDocuments(event: ChangeEvent<HTMLInputElement>) {
+    const selected = [...(event.target.files ?? [])];
+    await acceptFiles(selected);
     event.target.value = "";
   }
 
@@ -1524,7 +1548,16 @@ export default function OpportunityWorkbench() {
                   />
 
                   <div className="mt-5">
-                    <label className="grid cursor-pointer place-items-center rounded-xl border border-dashed border-[#0968d8]/35 bg-[#f5f8fc] px-5 py-6 text-center transition hover:border-[#0968d8]">
+                    <label
+                      className="grid cursor-pointer place-items-center rounded-xl border border-dashed border-[#0968d8]/35 bg-[#f5f8fc] px-5 py-6 text-center transition hover:border-[#0968d8]"
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        void acceptFiles([...event.dataTransfer.files]);
+                      }}
+                    >
                       <input
                         type="file"
                         multiple
@@ -1534,7 +1567,7 @@ export default function OpportunityWorkbench() {
                         disabled={uploadedFiles.length >= 5}
                       />
                       <span className="text-sm font-bold">Add PDF, Word, or PowerPoint files</span>
-                      <span className="mt-1 text-xs text-[#718095]">Up to 5 files, 10 MB each</span>
+                      <span className="mt-1 text-xs text-[#718095]">Drop files here or click to browse. Up to 5 files, 10 MB each</span>
                     </label>
                     {uploadedFiles.length > 0 && (
                       <ul className="mt-3 grid gap-2" aria-label="Attached files">
@@ -1549,16 +1582,29 @@ export default function OpportunityWorkbench() {
                     {documentMessage && <p className="mt-2 text-xs leading-5 text-[#68778b]">{documentMessage}</p>}
                   </div>
 
-                  <label htmlFor="manual-summary" className="mt-5 block text-sm font-bold text-[#36475f]">Anything else we should know?</label>
+                  <label htmlFor="manual-summary" className="mt-5 block text-sm font-bold text-[#36475f]">Paste a description, pitch, or notes</label>
                   <textarea
                     id="manual-summary"
                     value={manualText}
                     onChange={(event) => setManualText(event.target.value)}
                     onKeyDown={submitFormOnEnter}
                     rows={5}
-                    placeholder="Describe the product, customers, location, project, and what funding would support."
+                    placeholder="Describe the product, customers, location, project, and what funding would support. This is evidence, not the final company description."
                     className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
                   />
+
+                  {intakeStatus === "loading" && (
+                    <div className="mt-4 grid place-items-center rounded-2xl border border-[#0a1930]/8 bg-[#f7f9fc] px-4 py-6" aria-live="polite" aria-busy="true">
+                      <ThinkingOrb
+                        state="searching"
+                        size={64}
+                        theme="light"
+                        className="search-thinking-orb"
+                        aria-label="Building your profile"
+                      />
+                      <p className="mt-3 text-sm font-bold text-[#36475f]">Building your profile…</p>
+                    </div>
+                  )}
 
                   <button
                     type="submit"
@@ -1593,6 +1639,20 @@ export default function OpportunityWorkbench() {
               <h1 data-stage-heading tabIndex={-1}>{currentReviewQuestion.question}</h1>
               <p>{currentReviewQuestion.why}</p>
             </div>
+            {REQUIRED_PROFILE_QUESTIONS.some(({ key }) => isSupportedProfileField(key, profile[key])) && (
+              <div className="mb-5 rounded-2xl border border-[#0a1930]/8 bg-white/80 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#68778b]">Already filled from your evidence</p>
+                <ul className="mt-3 grid gap-2">
+                  {REQUIRED_PROFILE_QUESTIONS
+                    .filter(({ key }) => isSupportedProfileField(key, profile[key]))
+                    .map((field) => (
+                      <li key={field.key} className="text-sm leading-6 text-[#36475f]">
+                        <strong>{field.label}:</strong> {String(profile[field.key])}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
             <div className="approval-question-card">
               <div className="approval-question-body">
                 <QuestionField
@@ -1969,8 +2029,50 @@ export default function OpportunityWorkbench() {
                           <span className={`mt-0 inline-flex rounded-full px-2 py-1 text-[10px] font-bold sm:mt-2 ${field.known ? "bg-[#dff2e4] text-[#205d3a]" : "bg-[#fff1ce] text-[#735511]"}`}>{field.known ? "Ready" : "Founder needed"}</span>
                         </div>
                         <div>
-                          <p className={`text-sm font-semibold leading-6 ${field.known ? "text-[#253d2e]" : "text-[#8a5b1e]"}`}>{field.known ? field.value : "Leave blank until the founder provides it"}</p>
-                          <p className="mt-1 text-xs leading-5 text-[#8a938d]">{field.known ? "From the founder-confirmed company profile" : "No supported value is stored"}</p>
+                          {field.profileKey ? (
+                            <textarea
+                              value={String(field.value ?? "")}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                updateProfile(field.profileKey as keyof CompanyProfile, nextValue);
+                                if (!selectedOpportunity) return;
+                                setMatches((current) => current.map((item) => (
+                                  item.id !== selectedOpportunity.id
+                                    ? item
+                                    : {
+                                      ...item,
+                                      applicationFields: item.applicationFields.map((row) => (
+                                        row.label === field.label ? { ...row, value: nextValue } : row
+                                      )),
+                                    }
+                                )));
+                              }}
+                              rows={field.label.toLowerCase().includes("summary") || field.label.toLowerCase().includes("apply") ? 3 : 2}
+                              className="w-full rounded-xl border border-[#0a1930]/12 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-[#0968d8]"
+                            />
+                          ) : (
+                            <textarea
+                              value={String(field.value ?? "")}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                if (!selectedOpportunity) return;
+                                setMatches((current) => current.map((item) => (
+                                  item.id !== selectedOpportunity.id
+                                    ? item
+                                    : {
+                                      ...item,
+                                      applicationFields: item.applicationFields.map((row) => (
+                                        row.label === field.label ? { ...row, value: nextValue } : row
+                                      )),
+                                    }
+                                )));
+                              }}
+                              rows={2}
+                              className="w-full rounded-xl border border-[#0a1930]/12 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-[#0968d8]"
+                              placeholder="Leave blank until you have a supported answer"
+                            />
+                          )}
+                          <p className="mt-1 text-xs leading-5 text-[#8a938d]">{field.note ?? (field.known ? "From the founder-confirmed company profile" : "No supported value is stored")}</p>
                         </div>
                       </div>
                     ))}

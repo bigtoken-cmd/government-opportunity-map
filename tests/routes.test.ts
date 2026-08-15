@@ -134,7 +134,7 @@ test("cached search returns role-separated records and source warnings", async (
   for (const recommendation of body.discovery.recommendations) {
     assert.deepEqual(
       sortedKeys(recommendation),
-      ["intelligence", "match", "opportunity"],
+      ["intelligence", "listingPrefillFields", "match", "opportunity", "similarOpportunities"],
     );
     assert.deepEqual(
       sortedKeys(recommendation.intelligence),

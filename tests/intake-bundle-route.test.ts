@@ -126,8 +126,7 @@ test("one bounded bundle combines website, manual, PDF, DOCX, and PPTX provenanc
   assert.equal(body.profile.capitalNeed, "$500,000");
   assert.equal(body.profile.technology, "membrane sensor platform");
   assert.match(body.profile.description, /utility analytics/);
-  assert.match(body.profile.description, /12 employees/);
-  assert.match(body.profile.description, /Funding need: \$500,000/);
+  assert.equal(body.profile.description.includes("Funding need: $500,000"), false);
   assert.deepEqual(
     Object.fromEntries(body.evidence.map((claim: { field: string; sourceId: string }) => [claim.field, claim.sourceId])),
     {

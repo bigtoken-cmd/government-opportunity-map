@@ -8,42 +8,37 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
+# Government Opportunity Map
 
-# Government Opportunity Map Rules
+Turn a founder-supplied website, file, or description into defensible government opportunities and one application workspace.
 
-## Active planning authority
-- Read `TWO_HOUR_RELEASE_PLAN.md` before starting project work.
-- That release plan supersedes this file's historical ownership/branch assignments and all older plans' scope order, verification cadence, Cloudflare work, and next-step decisions.
-- The product goal and non-negotiable safety rules below remain active.
+## Model stage instructions
 
-## Product goal
-Build a founder-first Government Opportunity Map that turns a verified company profile into defensible government opportunities and one persistent application workspace.
+Each Luna or research stage loads rules from `src/lib/agents/`:
 
-## Historical ownership — deprecated
-- Jacob owns founder-facing UI, profile review, application workspace presentation, deployment, browser QA, and merges.
-- Lincoln owns government source adapters, normalization, terminology, hard eligibility checks, matching, historical joins, persistence logic, and backend tests.
-- `main` must remain deployable.
-- Jacob owns shared contracts, dependencies, lockfiles, Cloudflare configuration, and final merges.
+- `intake-extraction.md` — map evidence onto company profile fields
+- `semantic-review.md` — downgrade-only official-scope review
+- `research-query.md` — Grants.gov query agent
+- `research-listing.md` — listing-page scrape and similar-opportunity IDs
+- `research-historical.md` — USAspending / SBIR historical agent
+- `research-prefill.md` — listing-aware application prefill
+- `explanation-wording.md` — later wording pass over deterministic packets
 
-## Historical branches — deprecated
-- `main`: deployable integration branch
-- `jacob-ui`: Jacob and Codex only
-- `lincoln-data`: Lincoln and Cursor only
+Runtime code imports the same text from `src/lib/agents/instructions.ts`.
 
-## Non-negotiable rules
-- Do not manually hard-code opportunity outputs for any official test case.
-- All five official profiles must use the same pipeline.
+## Safety
+
+- Do not hard-code opportunity outputs for official test profiles.
+- All profiles use the same pipeline.
 - Government facts come only from validated official records.
-- AI never decides hard eligibility, deadlines, scores, or historical totals.
+- Models never decide hard eligibility, deadlines, scores, or historical totals.
+- Research agents may retrieve, extract, and propose. They may not upgrade a Skip into Pursue or invent facts.
+- Inferred profile fields are tagged `inferred`. Summarized description is tagged `summarized`.
 - Unknown critical eligibility caps a result at Potential Fit.
-- Current opportunities and historical awards remain separate.
+- Current opportunities and historical awards stay separate.
 - Every displayed official fact carries source ID, URL, and retrieval time.
-- Unsupported application fields remain blank and become founder questions.
-- No direct government-form submission in the hackathon build.
-- Do not add sources, models, packages, or architecture without agreement.
+- Unsupported application fields stay blank.
+- No direct government-form submission.
 - Never place secrets in client code, prompts, logs, screenshots, or commits.
 
-## Core before extras
-P0 is website/manual/PDF intake, verified profile, Grants.gov, USAspending, deterministic matching, strict disqualifiers, honest no-match, one application-prefill workspace, persistence, five-case fixtures, and production/local fallback.
-
-OAuth, email, calendar sync, settings, help chat, mascot animation, dashboards, and extra sources are not allowed until P0 passes twice.
+Local development: `npm install` then `npm run dev`. `OPENAI_API_KEY` belongs in `.env.local` only.

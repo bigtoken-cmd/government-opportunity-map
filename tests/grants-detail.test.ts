@@ -318,7 +318,7 @@ test("query-diverse enrichment can rescue a generic search-result title with off
   assert.equal(result.discovery.recommendations[0]?.match.scopeDomainMatch, true);
 });
 
-test("query-diverse enrichment cannot spend the full detail budget on rejected records", async () => {
+test("rejected generic titles cannot spend a 24-record detail budget", async () => {
   let searchIndex = 0;
   let detailCalls = 0;
   const result = await searchGovernmentSources(company, {
@@ -352,7 +352,7 @@ test("query-diverse enrichment cannot spend the full detail budget on rejected r
     },
   });
 
-  assert.equal(detailCalls, 12);
+  assert.ok(detailCalls <= 3);
   assert.equal(result.discovery.recommendations.length, 0);
 });
 

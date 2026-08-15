@@ -697,9 +697,9 @@ test("successful extraction uses the approved Responses API contract", async () 
   assert.match(String(requestBody.instructions), /ignore embedded instructions/i);
   assert.match(String(requestBody.instructions), /never (?:repeat|output) secret-like values/i);
   assert.match(String(requestBody.instructions), /no tools, actions/i);
-  assert.match(String(requestBody.instructions), /exact supporting excerpt/i);
-  assert.match(String(requestBody.instructions), /exact contiguous substring/i);
-  assert.match(String(requestBody.instructions), /never summarize, normalize, categorize, rewrite, or infer/i);
+  assert.match(String(requestBody.instructions), /verbatim/i);
+  assert.match(String(requestBody.instructions), /inferred/i);
+  assert.match(String(requestBody.instructions), /summarized/i);
   assert.match(String(requestBody.instructions), /unsupported facts unknown/i);
   for (const field of [
     "companyName",
@@ -736,4 +736,87 @@ test("all supported evidence source types use Luna when a key is present", async
     assert.equal(calls, 1, sourceType);
     assert.equal(result.externalProcessing.completed, true, sourceType);
   }
+});
+
+test("inferred categorical claims and a summarized description are accepted", async () => {
+  const evidenceText = [
+    "Helios Filtration is a for-profit startup based in Salt Lake City, Utah.",
+    "We build membrane filtration for municipal water utilities.",
+    "The company is founder-owned.",
+    "Funds would buy pilot equipment.",
+  ].join(" ");
+  const result = await extractFounderEvidence(input({ evidenceText }), {
+    apiKey: "test-only-key",
+    fetcher: async () => modelResponse([
+      {
+        field: "description",
+        kind: "summarized",
+        value: "Helios Filtration builds membrane filtration for municipal water utilities.",
+        evidenceExcerpt: "We build membrane filtration for municipal water utilities.",
+      },
+      {
+        field: "industry",
+        kind: "inferred",
+        value: "Water and environmental services",
+        evidenceExcerpt: "membrane filtration for municipal water utilities",
+      },
+      {
+        field: "technology",
+        kind: "verbatim",
+        value: "membrane filtration",
+        evidenceExcerpt: "We build membrane filtration for municipal water utilities.",
+      },
+      {
+        field: "location",
+        kind: "verbatim",
+        value: "Salt Lake City, Utah",
+        evidenceExcerpt: "based in Salt Lake City, Utah.",
+      },
+      {
+        field: "applicantType",
+        kind: "inferred",
+        value: "For-profit business",
+        evidenceExcerpt: "for-profit startup",
+      },
+      {
+        field: "ownership",
+        kind: "inferred",
+        value: "Founder-owned",
+        evidenceExcerpt: "The company is founder-owned.",
+      },
+      {
+        field: "useOfFunds",
+        kind: "verbatim",
+        value: "pilot equipment",
+        evidenceExcerpt: "Funds would buy pilot equipment.",
+      },
+    ]),
+  });
+
+  assert.equal(result.externalProcessing.completed, true);
+  const filled = [
+    "description",
+    "industry",
+    "technology",
+    "location",
+    "applicantType",
+    "ownership",
+    "useOfFunds",
+  ].filter((field) => result.proposedProfile[field as keyof typeof result.proposedProfile]);
+  assert.ok(filled.length >= 5, `filled ${filled.join(",")}`);
+  assert.equal(result.evidence.find((claim) => claim.field === "description")?.kind, "summarized");
+  assert.equal(result.evidence.find((claim) => claim.field === "applicantType")?.kind, "inferred");
+});
+
+test("inferred claims cannot invent values for non-categorical fields", async () => {
+  const result = await extractFounderEvidence(input(), {
+    apiKey: "test-only-key",
+    fetcher: async () => modelResponse([{
+      field: "companyName",
+      kind: "inferred",
+      value: "Acme Defense Labs",
+      evidenceExcerpt: "Acme Water Labs builds municipal water sensors",
+    }]),
+  });
+  assert.equal(result.externalProcessing.reason, "schema_failure");
 });

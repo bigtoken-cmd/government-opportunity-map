@@ -25,6 +25,8 @@ import type {
   SourcedGovernmentRecord,
 } from "./sources/source-contracts";
 import { searchUsaSpending } from "./sources/usaspending";
+import { researchReturnedOpportunities, type ResearchPassMeta } from "./opportunity-research-agent";
+import { listingPrefillFields } from "./listing-prefill";
 
 export type SourceFamily = "grants" | "assistance-listings" | "usaspending" | "sbir";
 
@@ -47,6 +49,7 @@ export interface GovernmentSourceSearchResult {
   discovery: OpportunityDiscovery;
   warnings: readonly string[];
   semanticReview?: SemanticReviewProcessing;
+  researchPass?: ResearchPassMeta;
   externalProcessingDisclosure?: string;
 }
 
@@ -169,36 +172,47 @@ function combineSourceResults<TRecord extends SourcedGovernmentRecord>(
   };
 }
 
-function selectEnrichmentCandidates(
-  ranked: readonly CurrentOpportunityRecord[],
-  queryResults: readonly SourceResult<CurrentOpportunityRecord>[],
-  canonicalRecords: readonly CurrentOpportunityRecord[],
-  limit: number,
+function titleLooksAmbiguous(
+  company: CompanyProfile,
+  record: CurrentOpportunityRecord,
 ) {
-  const selected = new Map<string, CurrentOpportunityRecord>();
-  const canonicalById = new Map(canonicalRecords.map((record) => [record.id, record]));
-  const add = (record: CurrentOpportunityRecord | undefined) => {
-    const canonical = record ? canonicalById.get(record.id) : undefined;
-    if (!canonical || selected.size >= limit || selected.has(canonical.id)) return false;
-    selected.set(canonical.id, canonical);
-    return true;
+  const title = record.title.toLocaleLowerCase("en-US");
+  const hasExact = company.exactTerms.some((term) => {
+    const needle = term.trim().toLocaleLowerCase("en-US");
+    return needle.length >= 3 && title.includes(needle);
+  });
+  if (hasExact) return false;
+  return title.length < 48
+    || /challenge|innovation|broad agency|funding opportunity|request for/i.test(record.title);
+}
+
+export function selectReturnedEnrichmentRecords(
+  company: CompanyProfile,
+  records: readonly CurrentOpportunityRecord[],
+  ranker: OpportunityRanker,
+) {
+  const qualifying = selectOpportunityCandidates(company, records, ranker, 20);
+  if (qualifying.length) return qualifying;
+  return records.filter((record) => titleLooksAmbiguous(company, record)).slice(0, 3);
+}
+
+function attachDeterministicPrefill(
+  company: CompanyProfile,
+  discovery: OpportunityDiscovery,
+  records: readonly CurrentOpportunityRecord[],
+): OpportunityDiscovery {
+  return {
+    ...discovery,
+    recommendations: discovery.recommendations.map((recommendation) => {
+      const record = records.find((item) => item.id === recommendation.opportunity.id);
+      return {
+        ...recommendation,
+        listingPrefillFields: recommendation.listingPrefillFields
+          ?? (record ? listingPrefillFields(record, company) : []),
+        similarOpportunities: recommendation.similarOpportunities ?? [],
+      };
+    }),
   };
-  ranked.slice(0, Math.ceil(limit / 2)).forEach(add);
-  const diverseLimit = Math.floor(limit / 2);
-  let diverseAdded = 0;
-  const maximumResultLength = Math.max(0, ...queryResults.map((result) => result.records.length));
-  for (
-    let index = 0;
-    index < maximumResultLength && diverseAdded < diverseLimit;
-    index += 1
-  ) {
-    for (const result of queryResults) {
-      if (diverseAdded >= diverseLimit) break;
-      if (add(result.records[index])) diverseAdded += 1;
-    }
-  }
-  ranked.forEach(add);
-  return [...selected.values()];
 }
 
 export function selectAssistanceListing(
@@ -235,17 +249,10 @@ export async function searchGovernmentSources(
   const detailFetcher = options.grantsDetailFetcher ?? options.fetcher ?? fetch;
   const detailModeEnabled = options.mode !== "cached" && options.mode !== "failure";
   if (detailModeEnabled && grants.records.length) {
-    const candidates = selectEnrichmentCandidates(
-      selectOpportunityCandidates(
-        company,
-        grants.records,
-        ranker,
-        24,
-      ),
-      grantResults.filter((_result, index) =>
-        grantQueries[index]?.term !== "small business innovation research"),
+    const candidates = selectReturnedEnrichmentRecords(
+      company,
       grants.records,
-      24,
+      ranker,
     );
     const candidateIds = new Set(candidates.map((record) => record.id));
     const orderedRecords = [
@@ -256,7 +263,7 @@ export async function searchGovernmentSources(
       fetcher: detailFetcher,
       now: options.now,
       maxRecords: candidates.length,
-      concurrency: 12,
+      concurrency: 3,
     });
     const warnings = [grants.warning, enrichment.warning].filter(Boolean);
     grants = {
@@ -353,6 +360,7 @@ export async function searchGovernmentSources(
     ranker,
   );
   let semanticReview: SemanticReviewProcessing | undefined;
+  let researchPass: ResearchPassMeta | undefined;
   const warnings = sources.flatMap((source) => source.warning ? [source.warning] : []);
   if (options.semanticReview) {
     const reviewed = await reviewOpportunitySemantics({
@@ -370,6 +378,28 @@ export async function searchGovernmentSources(
       );
     }
   }
+  if (detailModeEnabled && discovery.recommendations.length) {
+    const researched = await researchReturnedOpportunities(
+      company,
+      discovery,
+      grants.records,
+      {
+        fetcher: options.fetcher,
+        grantsDetailFetcher: detailFetcher,
+        now: options.now,
+        ranker,
+      },
+    );
+    discovery = researched.discovery;
+    researchPass = researched.researchPass;
+    if (!researched.researchPass.completed && researched.researchPass.reason) {
+      warnings.push(
+        `Research pass was incomplete (${researched.researchPass.reason}); official listings still shown.`,
+      );
+    }
+  } else {
+    discovery = attachDeterministicPrefill(company, discovery, grants.records);
+  }
 
   return {
     query: {
@@ -382,6 +412,9 @@ export async function searchGovernmentSources(
     ...(semanticReview ? {
       semanticReview,
       externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
-    } : {}),
+    } : {
+      externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
+    }),
+    ...(researchPass ? { researchPass } : {}),
   };
 }

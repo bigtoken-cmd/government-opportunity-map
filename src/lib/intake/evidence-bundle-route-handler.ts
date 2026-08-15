@@ -145,16 +145,12 @@ function mergeProfile(
   const base = createEvidenceOnlyFounderProfile(
     sources.map((source) => source.text).join("\n\n"),
   );
-  const nonWebsiteText = sources
-    .filter((source) => source.summary.id !== "website")
-    .map((source) => source.text.trim())
-    .filter(Boolean);
   const fallbackDescription = website?.profile.description
-    ? [website.profile.description, ...nonWebsiteText].join("\n\n").slice(0, 8_000)
-    : base.description.slice(0, 8_000);
+    ? website.profile.description.slice(0, 600)
+    : base.description.slice(0, 600);
   const profile: Record<string, string> = {
     ...base,
-    description: fallbackDescription,
+    ...(fallbackDescription ? { description: fallbackDescription } : {}),
     ...(website?.profile.companyName
       ? { companyName: website.profile.companyName }
       : {}),
@@ -168,6 +164,24 @@ function mergeProfile(
   }
   if (profile.location) profile.location = normalizeFounderLocation(profile.location);
   return profile;
+}
+
+function claimOrigin(
+  kind: FounderEvidenceClaim["kind"],
+  normalized: boolean,
+): "extracted" | "normalized" | "inferred" | "summarized" {
+  switch (kind) {
+    case "verbatim":
+      return normalized ? "normalized" : "extracted";
+    case "inferred":
+      return "inferred";
+    case "summarized":
+      return "summarized";
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
 }
 
 function profileFieldOrigins(
@@ -186,8 +200,9 @@ function profileFieldOrigins(
     const claim = claimByField.get(field as FounderEvidenceClaim["field"]);
     if (claim) {
       const normalized = value !== claim.value;
+      const origin = claimOrigin(claim.kind, normalized);
       return [field, {
-        origin: normalized ? "normalized" : "extracted",
+        origin,
         sourceId: claim.sourceId,
         ...(normalized ? { originalValue: claim.value } : {}),
         ...(claim.sourceIds ? { sourceIds: claim.sourceIds } : {}),
@@ -208,7 +223,7 @@ function profileFieldOrigins(
     }
     return [field, value && field === "description"
       ? {
-          origin: "extracted",
+          origin: "unknown",
           sourceId: "bundle",
           sourceIds: sources.map((source) => source.summary.id),
           sourceTextOrigins: [...new Set(sources.map((source) => source.summary.textOrigin))],
