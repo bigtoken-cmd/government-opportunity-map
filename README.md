@@ -2,7 +2,7 @@
 
 A founder-first research aid that turns a founder-confirmed company profile into defensible government opportunities, clear next actions, and an opportunity-scoped application workspace.
 
-The authoritative decisions, P0 checklist, and verification gate are in [HACKATHON_PLAN.md](./HACKATHON_PLAN.md). The internal repository-audit canvas is evidence-only: it records what code and tests support, not product promises.
+> **Active work:** use [JACOB_BACKEND_INTELLIGENCE_HANDOFF.md](./JACOB_BACKEND_INTELLIGENCE_HANDOFF.md) for current ownership, scope, sequencing, verification cadence, UI direction, and post-core decisions. [HACKATHON_PLAN.md](./HACKATHON_PLAN.md) and [JACOB_CHECKLIST.md](./JACOB_CHECKLIST.md) are retained as historical P0 records and are deprecated as active plans.
 
 ## Current architecture
 
@@ -85,9 +85,9 @@ Run the deterministic suite with:
 npm test
 ```
 
-## Ownership
+## Active ownership
 
-- Jacob: founder-facing UI, profile review, application workspace presentation, deployment, browser QA, and merges
-- Lincoln: source adapters, normalization, terminology, hard checks, matching, history, persistence logic, and backend tests
+- Jacob + Pro chat: backend intelligence, source/detail retrieval, contracts, extraction, eligibility, ranking, explanations, history, backend tests, and final integration
+- Lincoln + Plus chat: walkthrough UI, visual polish, responsive presentation, client components, and browser QA
 
-See `AGENTS.md` before using a coding agent. This product does not make definitive eligibility determinations or submit directly to government forms.
+See `AGENTS.md` and `JACOB_BACKEND_INTELLIGENCE_HANDOFF.md` before using a coding agent. The earlier ownership split is retained only in deprecated historical records. This product does not make definitive eligibility determinations or submit directly to government forms.

@@ -1,6 +1,9 @@
 # Government Opportunity Map — P0 Decision and Verification Plan
 
-This is the authoritative solution, decision, and checklist document. Status labels are limited to **Implemented**, **Verified**, **Planned**, **Blocked**, and **Deferred**.
+> [!WARNING]
+> **DEPRECATED AS AN ACTIVE PLAN — retained as the historical P0 decision and verification record.** Do not use this file for current ownership, scope, sequencing, verification cadence, or next-step decisions. The active plan is [`JACOB_BACKEND_INTELLIGENCE_HANDOFF.md`](./JACOB_BACKEND_INTELLIGENCE_HANDOFF.md). Its authority was confirmed after PR8 on August 15, 2026.
+
+The historical status labels below are limited to **Implemented**, **Verified**, **Planned**, **Blocked**, and **Deferred**.
 
 ## Current decision snapshot
 

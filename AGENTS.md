@@ -11,16 +11,21 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Government Opportunity Map Rules
 
+## Active planning authority
+- Read `JACOB_BACKEND_INTELLIGENCE_HANDOFF.md` before starting project work.
+- That handoff supersedes this file's historical ownership/branch assignments and the old plans' scope order, verification cadence, and next-step decisions.
+- The product goal and non-negotiable safety rules below remain active.
+
 ## Product goal
 Build a founder-first Government Opportunity Map that turns a verified company profile into defensible government opportunities and one persistent application workspace.
 
-## Ownership
+## Historical ownership — deprecated
 - Jacob owns founder-facing UI, profile review, application workspace presentation, deployment, browser QA, and merges.
 - Lincoln owns government source adapters, normalization, terminology, hard eligibility checks, matching, historical joins, persistence logic, and backend tests.
 - `main` must remain deployable.
 - Jacob owns shared contracts, dependencies, lockfiles, Cloudflare configuration, and final merges.
 
-## Branches
+## Historical branches — deprecated
 - `main`: deployable integration branch
 - `jacob-ui`: Jacob and Codex only
 - `lincoln-data`: Lincoln and Cursor only
