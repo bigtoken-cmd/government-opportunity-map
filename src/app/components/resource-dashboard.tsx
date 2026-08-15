@@ -199,6 +199,9 @@ export default function ResourceDashboard({
                 {visibleMatches.map((opportunity, index) => {
                   const expanded = expandedIds.includes(opportunity.id);
                   const saved = savedOpportunityIds.includes(opportunity.id);
+                  const historicalEvidence = opportunity.historicalEvidence ?? [];
+                  const historicalLimitation = opportunity.historicalLimitation
+                    ?? "No matching historical award was returned by this bounded search.";
                   return (
                     <article key={opportunity.id} className="opportunity-card">
                       <div className="opportunity-card-main">
@@ -228,7 +231,11 @@ export default function ResourceDashboard({
                             <ul>{opportunity.reasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)}</ul>
                             </ContextCard>
                             <ContextCard title="Verify before applying" meta={`${Math.min(opportunity.concerns.length, 3)} checks`}>
-                            <ul>{opportunity.concerns.slice(0, 3).map((concern) => <li key={concern}>{concern}</li>)}</ul>
+                              {opportunity.concerns.length ? (
+                                <ul>{opportunity.concerns.slice(0, 3).map((concern) => <li key={concern}>{concern}</li>)}</ul>
+                              ) : (
+                                <p>No additional source-backed concern was returned. Verify eligibility and instructions on the official source.</p>
+                              )}
                             </ContextCard>
                             <ContextCard
                               title="Recommended next action"
@@ -242,6 +249,22 @@ export default function ResourceDashboard({
                               )}
                             >
                               <p>{opportunity.nextAction}</p>
+                            </ContextCard>
+                            <ContextCard
+                              title="Historical context"
+                              meta={historicalEvidence.length
+                                ? `${historicalEvidence.length} related award${historicalEvidence.length === 1 ? "" : "s"}`
+                                : "Bounded search"}
+                              wide
+                            >
+                              {historicalEvidence.length ? (
+                                <>
+                                  <ul>{historicalEvidence.map((award) => <li key={award}>{award}</li>)}</ul>
+                                  <p>{historicalLimitation}</p>
+                                </>
+                              ) : (
+                                <p>{historicalLimitation}</p>
+                              )}
                             </ContextCard>
                           </div>
                         </div>

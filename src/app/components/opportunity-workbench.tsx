@@ -77,6 +77,8 @@ type OpportunityCard = {
   reasons: string[];
   concerns: string[];
   nextAction: string;
+  historicalEvidence: string[];
+  historicalLimitation: string;
   applicationFields: Array<{ label: string; profileKey?: keyof CompanyProfile; note?: string }>;
 };
 
@@ -91,6 +93,7 @@ type WebsiteResponse = {
     field: string;
     value: string;
     sourceUrl: string;
+    sourceId?: string;
     evidenceExcerpt?: string;
   }>;
   retrievedAt?: string;
@@ -107,6 +110,16 @@ type WebsiteResponse = {
 
 type EvidenceResponse = WebsiteResponse;
 
+type EvidenceBundleResponse = EvidenceResponse & {
+  sources?: Array<{
+    id: string;
+    displayName: string;
+    extractionStatus: string;
+    message?: string;
+  }>;
+  warnings?: string[];
+};
+
 type SourceHealth = {
   status: "idle" | "checking" | "live" | "cached" | "cached-fallback" | "unavailable";
   message: string;
@@ -122,7 +135,7 @@ type UploadedFile = {
   name: string;
   size: number;
   kind: "pdf" | "docx" | "pptx";
-  extraction: "read" | "paste-needed";
+  file: File;
 };
 
 const REQUIRED_REVIEW_QUESTIONS: Array<{
@@ -268,16 +281,16 @@ function sourceSummaryMessage(summary: SourceSearchSummary) {
 function mapDiscoveryRecommendation(
   recommendation: DiscoveryRecommendation,
 ): RankedOpportunityCard {
-  const { opportunity, match } = recommendation;
-  const eligibilityChecks = match.eligibility
-    .filter((check) => check.state !== "pass")
-    .map((check) => check.detail);
-  const reasons = [
-    match.reason,
-    ...(match.matchedConceptGroups.length
-      ? [`Matched evidence groups: ${match.matchedConceptGroups.join(", ")}.`]
-      : []),
-  ];
+  const { opportunity, match, intelligence } = recommendation;
+  const eligibilityChecks = intelligence.concerns.map((concern) => concern.text);
+  const reasons = intelligence.whyFit.map(({ companyFact, opportunityFact }) =>
+    `${companyFact.replace(/\.$/, "")} — ${opportunityFact.replace(/\.$/, "").replace(/^The /, "the ")}.`);
+  const historicalEvidence = (intelligence.historicalSupport?.awards ?? []).map((award) => {
+    const amount = typeof award.amount === "number"
+      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(award.amount)
+      : "amount not stated";
+    return `${award.recipient} received ${amount} for ${award.title}.`;
+  });
   return {
     id: opportunity.id,
     title: opportunity.title,
@@ -295,14 +308,14 @@ function mapDiscoveryRecommendation(
     amount: displayAmount(opportunity.amount),
     fitTier: match.fitStatus === "Strong Fit" ? "Likely Fit" : "Potential Fit",
     decision: match.decision,
-    relationship: match.reason,
-    reasons,
-    concerns: eligibilityChecks.length
-      ? eligibilityChecks
-      : ["Verify every notice-specific eligibility rule on the official source."],
-    nextAction: "Open the official notice and check the applicant type, registrations, project scope, and deadline.",
+    relationship: intelligence.decisionSummary,
+    reasons: reasons.length ? reasons : [intelligence.decisionSummary],
+    concerns: eligibilityChecks,
+    nextAction: intelligence.nextAction.text,
+    historicalEvidence,
+    historicalLimitation: intelligence.historicalSupport?.limitation ?? "No opportunity-specific historical award was returned by this bounded search.",
     applicationFields: COMMON_APPLICATION_FIELDS,
-    score: match.score.total,
+    score: match.effectiveScore ?? match.score.total,
     eligibilityChecks,
   };
 }
@@ -929,67 +942,45 @@ export default function OpportunityWorkbench() {
     }
     const hasWebsite = websiteUrl.trim().length > 0;
     const hasEvidence = manualText.trim().length >= 35;
-    if (!hasWebsite && !hasEvidence) {
+    const hasFiles = uploadedFiles.length > 0;
+    if (!hasWebsite && !hasEvidence && !hasFiles) {
       setIntakeStatus("error");
-      setIntakeMessage("Add a public website or a few sentences about the company before continuing.");
+      setIntakeMessage("Add a public website, a file, or a few sentences about the company before continuing.");
       return;
     }
     setIntakeStatus("loading");
     setIntakeMessage("");
     try {
-      let nextProfile: CompanyProfile = { ...EMPTY_PROFILE };
-      const nextEvidence: string[] = [];
-      const messages: string[] = [];
+      const form = new FormData();
+      form.set("externalProcessingConsent", "true");
+      if (hasWebsite) form.set("website", websiteUrl.trim());
+      if (hasEvidence) form.set("manualText", manualText.trim());
+      for (const upload of uploadedFiles) form.append("files", upload.file, upload.name);
 
-      if (hasWebsite) {
-        const response = await fetch("/api/intake/website", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: websiteUrl.trim(),
-            externalProcessingConsent: true,
-          }),
-        });
-        const result = (await response.json()) as WebsiteResponse;
-        if (!response.ok || !result.profile) {
-          throw new Error(result.error ?? result.fallback ?? "Website review failed.");
-        }
-        nextProfile = {
-          ...nextProfile,
-          ...pickSupportedEvidenceProfile(result.profile),
-          website: websiteUrl.trim(),
-        };
-        nextEvidence.push(...(result.evidence ?? []).map((item) =>
-          `${item.field}: extracted from ${new URL(item.sourceUrl).hostname}`));
-        messages.push(intakeResultMessage(result));
+      const response = await fetch("/api/intake/bundle", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as EvidenceBundleResponse;
+      if (!response.ok || !result.profile) {
+        throw new Error(result.error ?? result.fallback ?? "Evidence review failed.");
       }
-
-      if (hasEvidence) {
-        const sourceType = uploadedFiles.some((file) => file.kind === "pdf") ? "pdf" : "manual";
-        const response = await fetch("/api/intake/evidence", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sourceType,
-            evidenceText: manualText.trim(),
-            externalProcessingConsent: true,
-          }),
-        });
-        const result = (await response.json()) as EvidenceResponse;
-        if (!response.ok || !result.profile) {
-          throw new Error(result.error ?? result.fallback ?? "Evidence review failed.");
-        }
-        nextProfile = {
-          ...nextProfile,
-          ...profileFromText(manualText.trim()),
-          ...pickSupportedEvidenceProfile(result.profile),
-          website: nextProfile.website || websiteUrl.trim(),
-        };
-        nextEvidence.push(...(result.evidence?.length
-          ? result.evidence.map((item) => `${item.field}: supported by submitted evidence.`)
-          : ["Company description: provided by the founder."]));
-        messages.push(intakeResultMessage(result));
-      }
+      const extractedProfile = pickSupportedEvidenceProfile(result.profile);
+      const nextProfile: CompanyProfile = {
+        ...EMPTY_PROFILE,
+        ...(hasEvidence ? profileFromText(manualText.trim()) : {}),
+        ...extractedProfile,
+        website: websiteUrl.trim(),
+      };
+      const sourceNames = new Map((result.sources ?? []).map((source) => [source.id, source.displayName]));
+      const nextEvidence = result.evidence?.length
+        ? result.evidence.map((item) => `${item.field}: extracted from ${sourceNames.get(item.sourceId ?? "") ?? "submitted evidence"}.`)
+        : (result.sources ?? [])
+          .filter((source) => source.extractionStatus === "extracted" || source.extractionStatus === "provided-text")
+          .map((source) => `Company evidence: reviewed from ${source.displayName}.`);
+      const messages = result.warnings ?? [];
+      const sourceWarnings = (result.sources ?? []).flatMap((source) => source.message ? [source.message] : []);
+      setDocumentMessage(sourceWarnings[0] ?? "Website and file evidence were reviewed together.");
 
       const confirmedCandidate: CompanyProfile = {
         ...nextProfile,
@@ -1010,7 +1001,7 @@ export default function OpportunityWorkbench() {
       setSourceSummaries([]);
       setSourceEvidence(nextEvidence);
       setIntakeStatus("idle");
-      setIntakeMessage(messages[0] ?? "Review the extracted profile before searching.");
+      setIntakeMessage(messages[0] ?? intakeResultMessage(result));
       setStage("review");
     } catch (error) {
       setIntakeStatus("error");
@@ -1030,7 +1021,6 @@ export default function OpportunityWorkbench() {
     if (selected.length > room) setDocumentMessage("You can upload up to 5 files.");
 
     const nextFiles: UploadedFile[] = [];
-    const extractedSnippets: string[] = [];
     for (const file of accepted) {
       const extension = file.name.toLowerCase().split(".").pop();
       if (extension !== "pdf" && extension !== "docx" && extension !== "pptx") {
@@ -1041,29 +1031,10 @@ export default function OpportunityWorkbench() {
         setDocumentMessage(`${file.name} is over the 10 MB limit.`);
         continue;
       }
-      let extraction: UploadedFile["extraction"] = "paste-needed";
-      if (extension === "pdf") {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const raw = new TextDecoder("latin1").decode(bytes);
-        const snippets = [...raw.matchAll(/\(([^()]{20,})\)\s*Tj/g)]
-          .map((match) => match[1].replace(/\\[nrt]/g, " ").replace(/\\([()\\])/g, "$1"))
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (snippets.length > 80) {
-          extraction = "read";
-          extractedSnippets.push(snippets.slice(0, 5_000));
-        }
-      }
-      nextFiles.push({ name: file.name, size: file.size, kind: extension, extraction });
+      nextFiles.push({ name: file.name, size: file.size, kind: extension, file });
     }
     setUploadedFiles((current) => [...current, ...nextFiles].slice(0, 5));
-    if (extractedSnippets.length) {
-      setManualText((current) => [current, ...extractedSnippets].filter(Boolean).join("\n\n").slice(0, 12_000));
-      setDocumentMessage("Readable PDF text was added below. Review it before continuing.");
-    } else if (nextFiles.length) {
-      setDocumentMessage("Files attached. Paste their readable company text below if it was not extracted.");
-    }
+    if (nextFiles.length) setDocumentMessage(`${nextFiles.length} file${nextFiles.length === 1 ? "" : "s"} attached and ready for review.`);
     event.target.value = "";
   }
 
@@ -1082,7 +1053,10 @@ export default function OpportunityWorkbench() {
       const response = await fetch("/api/opportunities/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: confirmedProfile }),
+        body: JSON.stringify({
+          profile: confirmedProfile,
+          externalProcessingConsent,
+        }),
       });
       const result = (await response.json()) as GovernmentSourceSearchResult & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Government source search failed.");
@@ -1171,7 +1145,7 @@ export default function OpportunityWorkbench() {
                       <ul className="mt-3 grid gap-2" aria-label="Attached files">
                         {uploadedFiles.map((file) => (
                           <li key={`${file.name}-${file.size}`} className="flex items-center justify-between gap-3 rounded-xl border border-[#0a1930]/8 bg-white px-3 py-2 text-sm">
-                            <span className="min-w-0 truncate"><strong>{file.name}</strong> <span className="text-[#718095]">· {file.extraction === "read" ? "text ready" : "paste text below"}</span></span>
+                            <span className="min-w-0 truncate"><strong>{file.name}</strong> <span className="text-[#718095]">· ready to review</span></span>
                             <button type="button" onClick={() => setUploadedFiles((current) => current.filter((item) => item !== file))} className="shrink-0 text-xs font-bold text-[#5e6c80]">Remove</button>
                           </li>
                         ))}
