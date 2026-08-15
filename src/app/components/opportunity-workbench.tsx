@@ -1520,7 +1520,7 @@ export default function OpportunityWorkbench() {
                     onChange={(event) => setWebsiteUrl(event.target.value)}
                     onKeyDown={submitFormOnEnter}
                     placeholder="https://yourcompany.com"
-                    className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3.5 text-base outline-none transition focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
+                    className="mt-2 w-full rounded-xl border border-[#0a1930]/12 bg-white px-4 py-3.5 text-base outline-none transition-[border-color,box-shadow] focus:border-[#0968d8] focus:ring-4 focus:ring-[#0968d8]/10"
                   />
 
                   <div className="mt-5">

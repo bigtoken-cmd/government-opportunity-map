@@ -75,8 +75,7 @@ a {
 }
 
 .app-shell::before {
-  background: #f7f1e5 url("/images/utah-capitol-engraving.webp") center center / cover no-repeat;
-  transform: scale(1.08);
+  background: #f7f1e5 url("/images/utah-capitol-engraving.webp") center 42% / cover no-repeat;
 }
 
 .app-shell::after {
@@ -133,12 +132,11 @@ a {
   background: radial-gradient(
     ellipse at 38% 45%,
     rgba(247, 241, 229, 0.99) 0%,
-    rgba(247, 241, 229, 0.95) 34%,
-    rgba(247, 241, 229, 0.78) 53%,
-    rgba(247, 241, 229, 0.28) 68%,
-    rgba(247, 241, 229, 0) 82%
+    rgba(247, 241, 229, 0.96) 38%,
+    rgba(247, 241, 229, 0.82) 56%,
+    rgba(247, 241, 229, 0.36) 72%,
+    rgba(247, 241, 229, 0) 86%
   );
-  filter: blur(0.45rem);
 }
 
 .intake-hero-copy h1 {
@@ -151,9 +149,8 @@ a {
 .intake-panel {
   border: 1px solid rgba(6, 39, 92, 0.18);
   border-radius: var(--radius-panel);
-  background: var(--surface);
+  background: rgba(255, 253, 248, 0.97);
   box-shadow: none;
-  backdrop-filter: blur(0.2rem);
 }
 
 .approval-flow-heading > p:first-child {
@@ -1072,7 +1069,7 @@ h2,
 .app-shell input:not([type="checkbox"]):not([type="radio"]),
 .app-shell textarea,
 .app-shell select {
-  background-color: rgba(255, 253, 248, 0.96) !important;
+  background-color: #fffdf8 !important;
 }
 
 .app-shell h1,
@@ -1090,7 +1087,7 @@ h2,
 
 @media (max-width: 760px) {
   .app-shell::before {
-    transform: scale(1.12);
+    background-position: center 38%;
   }
   .app-shell::after {
     background: linear-gradient(
@@ -1108,8 +1105,7 @@ h2,
     padding-bottom: 3rem;
   }
   .intake-panel {
-    background: rgba(255, 253, 248, 0.97);
-    backdrop-filter: none;
+    background: #fffdf8;
   }
   .dashboard-heading,
   .results-toolbar,
