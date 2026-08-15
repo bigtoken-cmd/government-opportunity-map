@@ -42,7 +42,7 @@ Live execution is a run-specific verification claim, not implied by adapter code
 
 - **Verified:** two consecutive full `npm test` runs passed 24/24; route coverage includes malformed JSON, missing profile, cached role separation, source warnings, and injected-fetch website evidence-only output.
 - **Verified:** ESLint, `git diff --check`, and IDE lints passed.
-- **Blocked:** TypeScript and production build could not complete after the filesystem reached 100% capacity (124 MiB free); no intentional cleanup or dependency change was made.
+- **Verified:** TypeScript and the production build completed successfully after the prior disk-capacity issue was cleared; no dependency or lockfile change was made.
 - **Blocked:** browser/state matrix was not observed because Playwright could not start without a local Chrome distribution. No screenshot, console, network, desktop/mobile, navigation, reload, cached/fresh, or checklist-transition claim is made.
 
 ## Local development

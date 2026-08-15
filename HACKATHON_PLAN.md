@@ -65,7 +65,7 @@ This is the authoritative solution, decision, and checklist document. Status lab
 | Route contracts | Verified | Search route rejects invalid JSON and missing confirmed descriptions; cached role-separated responses include source warnings; website intake has an injected-fetch evidence-only shape test. |
 | Browser and reload matrix | Blocked | Observe direct URL, soft navigation, hard reload, cached versus fresh display, desktop, and mobile. Verify state transition from initial workspace to checklist change to reload. |
 | Cloudflare production verification | Blocked | Verify deployment, secret binding without exposing it, source states, and browser matrix in production. |
-| P0 exit | Planned | Two consecutive dependency-free suites passed 24/24. ESLint, diff check, and IDE lints passed. TypeScript/build remain unverified because the disk had 124 MiB free and generated-file writes failed; browser verification is blocked because Chromium is unavailable. |
+| P0 exit | Planned | Two consecutive dependency-free suites passed 24/24. ESLint, TypeScript, production build, diff check, and IDE lints passed. Browser verification remains unverified because Chromium was unavailable. |
 
 ## Deferred until P0 passes twice
 
@@ -75,6 +75,6 @@ This is the authoritative solution, decision, and checklist document. Status lab
 
 - **Verified:** `npm test && npm test` completed twice consecutively with 24/24 tests passing each run, including malformed JSON, missing profile, cached role separation, source states, website evidence-only intake, fixture boundary, holdouts, checklist isolation, calibration metrics, ablations, and direct/synonym invariants.
 - **Verified:** `npm run lint`, `git diff --check`, and IDE lints passed.
-- **Blocked:** `npx tsc --noEmit` could not write `tsconfig.tsbuildinfo` and then reported missing generated/source files after the filesystem reached 100% capacity. `npm run build` hit a Turbopack restore timeout and `no space left on device`. No files were intentionally deleted to make room.
+- **Verified:** `npx tsc --noEmit` and `npm run build` completed successfully after the prior disk-capacity issue was cleared; no dependency or lockfile change was made.
 - **Blocked:** browser matrix was not observed. Playwright could not start because the Chrome distribution was unavailable; no direct visit, soft navigation, reload, checklist transition, cached/fresh label, desktop/mobile screenshot, console, or network observation is claimed.
 - **UNVERIFIED:** no production deployment or Cloudflare secret verification was attempted.
