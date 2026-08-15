@@ -1,6 +1,7 @@
 export type CalibrationSplit = "calibration" | "locked-holdout";
 
 export interface CalibrationJudgment {
+  opportunityId: string;
   sourceId: string;
   sourceUrl: string;
   retrievedAt: string;
@@ -28,10 +29,11 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     split: "calibration",
     judgments: [
       {
-        sourceId: "grants-359666",
+        opportunityId: "grants-359666",
+        sourceId: "359666",
         sourceUrl: "https://www.grants.gov/search-results-detail/359666",
         retrievedAt,
-        provenanceHash: "cf1ab4c233d47862fd6385e3f4ffc3c1c805ed3c0c2091a50bd211b5280bc302",
+        provenanceHash: "e7e51033950d1536db682a3c554b645339a8294acd4d42497a403fb86d3c261f",
         direct: 1,
         synonym: 1,
         broadMission: 1,
@@ -39,7 +41,8 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
         actionable: true,
       },
       {
-        sourceId: "grants-360954",
+        opportunityId: "grants-360954",
+        sourceId: "360954",
         sourceUrl: "https://www.grants.gov/search-results-detail/360954",
         retrievedAt,
         provenanceHash: "b819c64e9df1d7ed46ada143df441ce1fe973811d6b4d5634d00e8aed4a41a14",
@@ -57,10 +60,11 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     split: "calibration",
     judgments: [
       {
-        sourceId: "grants-306824",
+        opportunityId: "grants-306824",
+        sourceId: "306824",
         sourceUrl: "https://www.grants.gov/search-results-detail/306824",
         retrievedAt,
-        provenanceHash: "7cda1f047d71c115db7eec5d201e6279fa31537b1c5ff4c6f19ef789b3a9a415",
+        provenanceHash: "c954d196c04d8155538752dbb8b60f0710b4fe5bc7d117b63e2d75e0fcd398cd",
         direct: 1,
         synonym: 1,
         broadMission: 1,
@@ -68,7 +72,8 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
         actionable: true,
       },
       {
-        sourceId: "grants-360954",
+        opportunityId: "grants-360954",
+        sourceId: "360954",
         sourceUrl: "https://www.grants.gov/search-results-detail/360954",
         retrievedAt,
         provenanceHash: "b819c64e9df1d7ed46ada143df441ce1fe973811d6b4d5634d00e8aed4a41a14",
@@ -86,10 +91,11 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     split: "calibration",
     judgments: [
       {
-        sourceId: "grants-362396",
+        opportunityId: "grants-362396",
+        sourceId: "362396",
         sourceUrl: "https://www.grants.gov/search-results-detail/362396",
         retrievedAt,
-        provenanceHash: "c2a9f053cb307fa22c769b07896bcad487fb81a6900d8cc1e6f6a44951cd89a6",
+        provenanceHash: "a1c22c2e01acd953e6f3f900e746ed6bd11fc2bddc7e9837e60cc49f7d213e2f",
         direct: 1,
         synonym: 1,
         broadMission: 1,
@@ -97,7 +103,8 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
         actionable: true,
       },
       {
-        sourceId: "grants-360954",
+        opportunityId: "grants-360954",
+        sourceId: "360954",
         sourceUrl: "https://www.grants.gov/search-results-detail/360954",
         retrievedAt,
         provenanceHash: "b819c64e9df1d7ed46ada143df441ce1fe973811d6b4d5634d00e8aed4a41a14",
@@ -115,10 +122,11 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     split: "locked-holdout",
     judgments: [
       {
-        sourceId: "grants-357554",
+        opportunityId: "grants-357554",
+        sourceId: "357554",
         sourceUrl: "https://www.grants.gov/search-results-detail/357554",
         retrievedAt,
-        provenanceHash: "1f2864b279bb07096ff17dd450d59f1e8ce2c03098d0c7ca7f54c98397e710fa",
+        provenanceHash: "db1178a70cb79e07469c3aa7139841063152e8475acfad8ff6f00918d8a5fb0d",
         direct: 1,
         synonym: 1,
         broadMission: 1,
@@ -126,7 +134,8 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
         actionable: true,
       },
       {
-        sourceId: "grants-360954",
+        opportunityId: "grants-360954",
+        sourceId: "360954",
         sourceUrl: "https://www.grants.gov/search-results-detail/360954",
         retrievedAt,
         provenanceHash: "b819c64e9df1d7ed46ada143df441ce1fe973811d6b4d5634d00e8aed4a41a14",
@@ -144,10 +153,11 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     split: "calibration",
     judgments: [
       {
-        sourceId: "grants-306824",
+        opportunityId: "grants-306824",
+        sourceId: "306824",
         sourceUrl: "https://www.grants.gov/search-results-detail/306824",
         retrievedAt,
-        provenanceHash: "7cda1f047d71c115db7eec5d201e6279fa31537b1c5ff4c6f19ef789b3a9a415",
+        provenanceHash: "c954d196c04d8155538752dbb8b60f0710b4fe5bc7d117b63e2d75e0fcd398cd",
         direct: 0,
         synonym: 0,
         broadMission: 1,
@@ -157,15 +167,16 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     ],
   },
   {
-    profileKey: "bookkeeping-control",
+    profileKey: "holdout-bookkeeping",
     query: "",
     split: "calibration",
     judgments: [
       {
-        sourceId: "grants-306824",
+        opportunityId: "grants-306824",
+        sourceId: "306824",
         sourceUrl: "https://www.grants.gov/search-results-detail/306824",
         retrievedAt,
-        provenanceHash: "7cda1f047d71c115db7eec5d201e6279fa31537b1c5ff4c6f19ef789b3a9a415",
+        provenanceHash: "c954d196c04d8155538752dbb8b60f0710b4fe5bc7d117b63e2d75e0fcd398cd",
         direct: 0,
         synonym: 0,
         broadMission: 1,
@@ -175,12 +186,13 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     ],
   },
   {
-    profileKey: "dog-grooming-control",
+    profileKey: "holdout-dog-grooming",
     query: "",
     split: "calibration",
     judgments: [
       {
-        sourceId: "grants-360954",
+        opportunityId: "grants-360954",
+        sourceId: "360954",
         sourceUrl: "https://www.grants.gov/search-results-detail/360954",
         retrievedAt,
         provenanceHash: "b819c64e9df1d7ed46ada143df441ce1fe973811d6b4d5634d00e8aed4a41a14",
@@ -193,12 +205,13 @@ export const CALIBRATION_QUERY_LOG: readonly CalibrationQuery[] = [
     ],
   },
   {
-    profileKey: "staffing-control",
+    profileKey: "holdout-staffing",
     query: "",
     split: "locked-holdout",
     judgments: [
       {
-        sourceId: "grants-360954",
+        opportunityId: "grants-360954",
+        sourceId: "360954",
         sourceUrl: "https://www.grants.gov/search-results-detail/360954",
         retrievedAt,
         provenanceHash: "b819c64e9df1d7ed46ada143df441ce1fe973811d6b4d5634d00e8aed4a41a14",

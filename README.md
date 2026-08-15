@@ -15,9 +15,9 @@ The authoritative decisions, P0 checklist, and verification gate are in [HACKATH
 ## Source roles and status
 
 - **Grants.gov — Implemented:** current and forecast opportunities; live search code with role-matched official cached fallback.
-- **SAM.gov / Open GSA Assistance Listings — Blocked:** program context only; the audited official snapshot is used while the published endpoint schema/live behavior remains unverified.
+- **SAM.gov Assistance Listings — Implemented:** program context only; scheduled official public-CSV ingestion feeds a compact cached store, with the audited snapshot retained until a valid ingestion exists.
 - **USAspending — Implemented:** historical awards only; live retrieval code with role-matched official cached fallback.
-- **SBIR.gov — Blocked:** historical award records only. Published API routes returned 404 during verification, so no record is substituted.
+- **SBIR.gov — Implemented:** historical awards only; scheduled official monthly-CSV ingestion feeds a compact cached store, with an honest empty fallback before a valid ingestion exists.
 
 Live execution is a run-specific verification claim, not implied by adapter code. Valid-empty, malformed, failed, cached, and live source states remain visible in source results.
 
@@ -26,24 +26,32 @@ Live execution is a run-specific verification claim, not implied by adapter code
 - Next.js 16 and TypeScript
 - Cloudflare Workers through the OpenNext adapter
 - Deterministic matching, explanations, and workspace-state serialization
-- **Planned (locked choice):** GPT-5.6 Luna at medium effort/fast reasoning is the single planned app API model. It remains limited to server-side structured extraction of supplied evidence and optional constrained wording; no model SDK/API call is implemented. The provider API ID was not supplied as user-confirmed, and Cloudflare secret presence remains unverified.
-- `OPENAI_API_KEY` is server-only: `.env.local` locally and a Cloudflare secret in production. Never use `NEXT_PUBLIC_*`, print, read, store, or commit its value. Secret presence is external and unverified; provisioning it is not model integration.
+- **Implemented:** GPT-5.6 Luna (`gpt-5.6-luna`) is the single app API model for consent-gated, server-side structured extraction of supplied evidence. Obvious submitted credentials are removed before processing; strict schema/evidence checks and deterministic fallback prevent model output from controlling government facts or decisions.
+- `OPENAI_API_KEY` is server-only: `.env.local` locally and a Cloudflare secret in production. Never use `NEXT_PUBLIC_*`, print, read, store, or commit its value. Secret presence and a real credentialed model response remain externally unverified.
+- The UI must disclose OpenAI processing and send `externalProcessingConsent: true`. Raw supplied evidence is not logged or persisted server-side, and requests use `store: false`.
 
 ## Status
 
 - **Implemented:** canonical profile normalization, provenance-bearing source contracts, four role-separated adapters, strict eligibility/unknown cap, 100-point starting rubric, top-five discovery, deterministic explanations, and opportunity-scoped checklist serialization.
 - **Verified:** automated tests cover five verifier-only shared-pipeline fixtures, three adversarial holdouts, source-role/state behavior, deterministic matching, explanations, workspace-state isolation, and website evidence-only intake.
-- **Verified:** frozen test-only calibration/query-log evidence covers five verifier profiles plus three controls, explicit splits, source provenance hashes, literal/direct versus controlled-synonym versus broad-mission labels, ablations, and three predefined score distributions. Current and both candidates achieved recall@20 1.00, weighted precision@10 0.50, positive-profile floor 1.00, locked positive recall@20 1.00, and zero actionable negatives; separations were 35/35/40. Current weights were retained.
-- **Planned:** grouped queries and broader noise suppression; durable D1 persistence after an evidenced binding and database implementation.
-- **Blocked:** Assistance Listings live schema validation, SBIR live routes, production secret presence, and route/browser/reload/desktop/mobile verification.
+- **Verified:** calibration consumes actual cached production recommendations. All calibration positives and the locked cyber holdout retrieve a frozen relevant opportunity, four negative controls receive zero recommendations, and pooled precision@10 is 0.75.
+- **Implemented:** bounded grouped queries, noise suppression, bounded opaque workspace persistence logic/token hashing, unavailable-by-default persistence API, scheduled Assistance Listings/SBIR ingestion logic, and strict Luna extraction.
+- **Planned/Blocked:** durable D1 and scheduled-ingestion bindings are not deployed; production persistence verification remains Blocked. UI persistence wiring and manual/PDF route wiring remain Planned.
+- **Blocked:** production secret presence, credentialed live probes, and route/browser/reload/desktop/mobile verification.
 - **Deferred:** OAuth, email, calendar, settings, help, mascot, RAG, dashboard work, extra sources, and direct government-form submission until P0 passes twice.
 
 ## Latest verification evidence
 
-- **Verified:** two consecutive full `npm test` runs passed 24/24; route coverage includes malformed JSON, missing profile, cached role separation, source warnings, and injected-fetch website evidence-only output.
-- **Verified:** ESLint, `git diff --check`, and IDE lints passed.
-- **Verified:** TypeScript and the production build completed successfully after the prior disk-capacity issue was cleared; no dependency or lockfile change was made.
+- **Verified:** two consecutive full `npm test` runs passed 64/64, including production-pipeline calibration, grouped queries, scheduled CSV ingestion, opaque persistence, and consent-gated Luna extraction.
+- **Verified:** after the consolidated final-review fixes, combined-main automated verification passed two consecutive 77/77 suites. The prior 64/64 line remains the exact historical August 14 evidence.
+- **Verified:** ESLint, TypeScript, the production build, and `git diff --check` passed in the healthy local recovery clone; no dependency or lockfile change was made.
+- **Verified:** fresh healthcare and advanced-manufacturing probes returned live Grants.gov and USAspending records; Assistance Listings and SBIR stayed honestly cached-fallback until scheduled stores are deployed.
 - **Blocked:** browser/state matrix was not observed because Playwright could not start without a local Chrome distribution. No screenshot, console, network, desktop/mobile, navigation, reload, cached/fresh, or checklist-transition claim is made.
+
+## Remaining P0 handoff
+
+- Jacob/UI: add the OpenAI disclosure and `externalProcessingConsent: true`; wire manual/PDF evidence to the shared Luna boundary; render program context separately; connect `/api/workspace`; configure D1, scheduled ingestions, secrets, and deployment; complete browser evidence.
+- Lincoln/integration: run one credentialed Luna probe without logging inputs or secrets, and preserve the recovery branch/stash until the recovered work is safely committed.
 
 ## Local development
 

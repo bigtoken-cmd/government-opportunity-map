@@ -3,90 +3,81 @@ import type {
   SourceAdapterOptions,
   SourceResult,
 } from "./source-contracts";
+import { SBIR_AWARDS_CSV_URL } from "./sbir-ingestion";
+import type {
+  SbirAwardsSnapshotMetadata,
+  SbirAwardsStore,
+  SbirHistoricalAwardEntry,
+} from "./sbir-store";
 
-const SOURCE_NAME = "SBIR.gov Awards API";
-const SOURCE_URL = "https://www.sbir.gov/api";
+const SOURCE_NAME = "SBIR.gov historical awards";
 
-function text(value: unknown) {
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return "";
+export interface SbirAwardsOptions extends SourceAdapterOptions {
+  store?: SbirAwardsStore;
 }
 
-function amount(value: unknown) {
-  const parsed = Number(text(value).replace(/[$,]/g, ""));
-  return Number.isFinite(parsed) ? parsed : 0;
+function searchTerms(keyword: string) {
+  const normalized = keyword.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  if (!normalized) return [];
+  return [
+    normalized,
+    ...normalized.split(/[^a-z0-9]+/).filter((term) => term.length >= 3),
+  ];
 }
 
-function recordsFrom(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload as Record<string, unknown>;
-  if (Array.isArray(root.results)) return root.results;
-  if (Array.isArray(root.awards)) return root.awards;
-  return [];
+function sourceNote(metadata: SbirAwardsSnapshotMetadata) {
+  return `Official monthly SBIR.gov cached bulk snapshot; source file retrieved ${metadata.retrievedAt} and last modified ${metadata.lastModified ?? "not supplied"}. Historical award only. It is not an open solicitation.`;
 }
 
-export function normalizeSbirAwardsPayload(
-  payload: unknown,
-  retrievedAt: string,
-): HistoricalAwardRecord[] {
-  return recordsFrom(payload).flatMap((value): HistoricalAwardRecord[] => {
-    if (!value || typeof value !== "object") return [];
-    const award = value as Record<string, unknown>;
-    const sourceId =
-      text(award.contract) ||
-      text(award.award_id) ||
-      text(award.id);
-    const title =
-      text(award.award_title) ||
-      text(award.title);
-    const recipient =
-      text(award.firm) ||
-      text(award.company) ||
-      text(award.recipient);
-    if (!sourceId || !title || !recipient) return [];
-    const sourceUrl = text(award.award_link).startsWith("https://")
-      ? text(award.award_link)
-      : `${SOURCE_URL}?keyword=${encodeURIComponent(sourceId)}`;
-    const description = text(award.abstract) || text(award.description);
-    const year = text(award.award_year);
-    return [{
-      kind: "historical_award",
-      id: `sbir-${sourceId}`,
-      title,
-      agency: text(award.agency) || text(award.branch),
-      recipient,
-      amount: amount(award.award_amount),
-      startDate: year,
-      endDate: year,
-      assistanceListing: "",
-      description,
-      source: {
-        sourceId,
-        sourceName: SOURCE_NAME,
-        sourceUrl,
-        retrievedAt,
-        factState: "historical",
-        snapshotStatus: "live",
-        note: "Historical SBIR/STTR award record only. It is not an open solicitation.",
-      },
-    }];
-  });
+function historicalRecord(
+  award: SbirHistoricalAwardEntry,
+  metadata: SbirAwardsSnapshotMetadata,
+): HistoricalAwardRecord {
+  return {
+    kind: "historical_award",
+    id: `sbir-${award.recordKey}`,
+    title: award.title,
+    agency: award.agency,
+    branch: award.branch,
+    program: award.program,
+    phase: award.phase,
+    recipient: award.company,
+    amount: award.amount,
+    startDate: award.startDate || award.awardYear,
+    endDate: award.endDate || award.awardYear,
+    assistanceListing: "",
+    description: "",
+    researchKeywords: award.researchKeywords,
+    source: {
+      sourceId: award.awardId,
+      sourceName: SOURCE_NAME,
+      sourceUrl: award.awardUrl,
+      retrievedAt: metadata.retrievedAt,
+      factState: "historical",
+      snapshotStatus: "cached_official_snapshot",
+      note: sourceNote(metadata),
+    },
+  };
 }
 
 export async function searchSbirAwards(
   keyword: string,
-  options: SourceAdapterOptions = {},
+  options: SbirAwardsOptions = {},
 ): Promise<SourceResult<HistoricalAwardRecord>> {
   const retrievedAt = (options.now ?? (() => new Date()))().toISOString();
-  const base = { source: SOURCE_NAME, sourceUrl: SOURCE_URL, retrievedAt } as const;
+  const base = {
+    source: SOURCE_NAME,
+    sourceUrl: SBIR_AWARDS_CSV_URL,
+    retrievedAt,
+  } as const;
   if (options.mode === "cached" || options.mode === "failure") {
     return {
       ...base,
-      status: options.mode === "cached" ? "cached" : "cached-fallback",
+      status: options.mode === "cached" ? "cached" : "unavailable",
       records: [],
-      warning: "No SBIR.gov award is bundled for this query. No historical record is being substituted.",
+      warning: options.mode === "cached"
+        ? "No SBIR.gov award is bundled for this query. No historical award is being substituted."
+        : "The SBIR historical-award snapshot is unavailable. No historical award is being substituted.",
     };
   }
   if (!keyword.trim()) {
@@ -98,10 +89,31 @@ export async function searchSbirAwards(
     };
   }
 
+  try {
+    const metadata = options.store ? await options.store.metadata() : null;
+    if (metadata && options.store) {
+      const records = await options.store.searchByTerms(searchTerms(keyword), 20);
+      return {
+        ...base,
+        retrievedAt: metadata.retrievedAt,
+        status: "cached",
+        records: records.map((record) => historicalRecord(record, metadata)),
+        warning: `Showing the official cached SBIR historical-award snapshot last modified ${metadata.lastModified ?? "at an unknown time"}.`,
+      };
+    }
+  } catch {
+    return {
+      ...base,
+      status: "unavailable",
+      records: [],
+      warning: "The SBIR historical-award snapshot store is unavailable. No historical award is being substituted.",
+    };
+  }
+
   return {
     ...base,
     status: "cached-fallback",
     records: [],
-    warning: "The published SBIR.gov API routes returned 404 during verification. No historical award is being substituted.",
+    warning: "No ingested SBIR historical-award snapshot is configured. No historical award is being substituted.",
   };
 }

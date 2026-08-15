@@ -32,12 +32,16 @@ export interface HistoricalAwardRecord {
   id: string;
   title: string;
   agency: string;
+  branch?: string;
+  program?: string;
+  phase?: string;
   recipient: string;
-  amount: number;
+  amount?: number;
   startDate: string;
   endDate: string;
   assistanceListing: string;
   description: string;
+  researchKeywords?: readonly string[];
   source: Provenance;
 }
 

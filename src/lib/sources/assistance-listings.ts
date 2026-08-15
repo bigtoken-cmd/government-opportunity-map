@@ -3,9 +3,14 @@ import type {
   SourceAdapterOptions,
   SourceResult,
 } from "./source-contracts";
+import { ASSISTANCE_LISTINGS_CSV_URL } from "./assistance-listings-ingestion";
+import type {
+  AssistanceListingEntry,
+  AssistanceListingsSnapshotMetadata,
+  AssistanceListingsStore,
+} from "./assistance-listings-store";
 
-const SOURCE_NAME = "SAM.gov / Open GSA Assistance Listings";
-const SOURCE_URL = "https://open.gsa.gov/api/assistance-listings/";
+const SOURCE_NAME = "SAM.gov Assistance Listings";
 const SNAPSHOT_RETRIEVED_AT = "2026-08-14T00:00:00.000Z";
 
 const OFFICIAL_SNAPSHOT: readonly Omit<ProgramContextRecord, "source">[] = [
@@ -57,81 +62,24 @@ export interface AssistanceListingsSearchInput {
 }
 
 export interface AssistanceListingsOptions extends SourceAdapterOptions {
-  apiKey?: string;
-}
-
-function text(value: unknown) {
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return "";
-}
-
-function payloadRecords(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload as Record<string, unknown>;
-  if (Array.isArray(root.results)) return root.results;
-  if (Array.isArray(root.data)) return root.data;
-  if (root.data && typeof root.data === "object") {
-    const nested = root.data as Record<string, unknown>;
-    if (Array.isArray(nested.results)) return nested.results;
-    if (Array.isArray(nested.listings)) return nested.listings;
-  }
-  return Array.isArray(root.listings) ? root.listings : [];
+  store?: AssistanceListingsStore;
 }
 
 function sourceFor(
   assistanceListing: string,
+  sourceUrl: string,
   retrievedAt: string,
-  snapshotStatus: "live" | "cached_official_snapshot",
+  note: string,
 ): ProgramContextRecord["source"] {
   return {
     sourceId: assistanceListing,
     sourceName: SOURCE_NAME,
-    sourceUrl: `https://sam.gov/fal/${encodeURIComponent(assistanceListing)}`,
+    sourceUrl,
     retrievedAt,
     factState: "current",
-    snapshotStatus,
-    note: snapshotStatus === "live"
-      ? "Program definition only. This is not an open funding notice."
-      : "Audited official program snapshot retrieved August 14, 2026. This is not an open funding notice.",
+    snapshotStatus: "cached_official_snapshot",
+    note,
   };
-}
-
-export function normalizeAssistanceListingsPayload(
-  payload: unknown,
-  retrievedAt: string,
-): ProgramContextRecord[] {
-  return payloadRecords(payload).flatMap((value): ProgramContextRecord[] => {
-    if (!value || typeof value !== "object") return [];
-    const record = value as Record<string, unknown>;
-    const assistanceListing =
-      text(record.program_number) ||
-      text(record.programNumber) ||
-      text(record.assistanceListingNumber) ||
-      text(record.assistance_listing_number) ||
-      text(record.number);
-    const title =
-      text(record.program_title) ||
-      text(record.programTitle) ||
-      text(record.title);
-    if (!/^\d{2}\.\d{3}$/.test(assistanceListing) || !title) return [];
-    return [{
-      kind: "program_context",
-      id: `assistance-${assistanceListing}`,
-      assistanceListing,
-      title,
-      agency:
-        text(record.agency_name) ||
-        text(record.agencyName) ||
-        text(record.agency),
-      objective:
-        text(record.objectives) ||
-        text(record.objective) ||
-        text(record.description),
-      source: sourceFor(assistanceListing, retrievedAt, "live"),
-    }];
-  });
 }
 
 function cachedRecords(input: AssistanceListingsSearchInput): ProgramContextRecord[] {
@@ -146,8 +94,65 @@ function cachedRecords(input: AssistanceListingsSearchInput): ProgramContextReco
     })
     .map((record) => ({
       ...record,
-      source: sourceFor(record.assistanceListing, SNAPSHOT_RETRIEVED_AT, "cached_official_snapshot"),
+      source: sourceFor(
+        record.assistanceListing,
+        "https://sam.gov/content/assistance-listings",
+        SNAPSHOT_RETRIEVED_AT,
+        "Audited official program snapshot retrieved August 14, 2026. This is not an open funding notice.",
+      ),
     }));
+}
+
+function searchTerms(keyword: string) {
+  const normalized = keyword.trim().toLocaleLowerCase("en-US").replace(/\s+/g, " ");
+  if (!normalized) return [];
+  return [
+    normalized,
+    ...normalized.split(/[^a-z0-9]+/).filter((term) => term.length >= 3),
+  ];
+}
+
+function ingestedSourceNote(metadata: AssistanceListingsSnapshotMetadata) {
+  const lastModified = metadata.lastModified ?? "not supplied";
+  return `Official Assistance Listings cached CSV snapshot; source file retrieved ${metadata.retrievedAt} and last modified ${lastModified}. Program definition only. This is not an open funding notice.`;
+}
+
+function ingestedRecord(
+  record: AssistanceListingEntry,
+  metadata: AssistanceListingsSnapshotMetadata,
+): ProgramContextRecord {
+  return {
+    kind: "program_context",
+    id: `assistance-${record.assistanceListing}`,
+    assistanceListing: record.assistanceListing,
+    title: record.title,
+    agency: record.agency,
+    objective: record.objective,
+    source: sourceFor(
+      record.assistanceListing,
+      record.recordUrl,
+      metadata.retrievedAt,
+      ingestedSourceNote(metadata),
+    ),
+  };
+}
+
+async function ingestedRecords(
+  input: AssistanceListingsSearchInput,
+  store: AssistanceListingsStore,
+) {
+  const metadata = await store.metadata();
+  if (!metadata) return null;
+  const listing = input.assistanceListing?.trim();
+  const records = listing
+    ? [await store.getById(listing)].filter(
+      (record): record is AssistanceListingEntry => record !== null,
+    )
+    : await store.searchByTerms(searchTerms(input.keyword ?? ""), 20);
+  return {
+    metadata,
+    records: records.map((record) => ingestedRecord(record, metadata)),
+  };
 }
 
 export async function searchAssistanceListings(
@@ -156,7 +161,11 @@ export async function searchAssistanceListings(
 ): Promise<SourceResult<ProgramContextRecord>> {
   const retrievedAt = (options.now ?? (() => new Date()))().toISOString();
   const fallback = cachedRecords(input);
-  const base = { source: SOURCE_NAME, sourceUrl: SOURCE_URL, retrievedAt } as const;
+  const base = {
+    source: SOURCE_NAME,
+    sourceUrl: ASSISTANCE_LISTINGS_CSV_URL,
+    retrievedAt,
+  } as const;
   if (options.mode === "cached") {
     return {
       ...base,
@@ -165,14 +174,37 @@ export async function searchAssistanceListings(
       warning: "Live retrieval was not requested. Showing the audited August 14, 2026 program snapshot.",
     };
   }
-  if (options.mode === "failure" || !options.apiKey) {
+  if (options.mode === "failure") {
     return {
       ...base,
       status: "cached-fallback",
       records: fallback,
-      warning: options.mode === "failure"
-        ? "Simulated upstream failure. Showing the audited official program snapshot."
-        : "The Open GSA API key is not configured. Showing the audited official program snapshot.",
+      warning: "Simulated snapshot-store failure. Showing the audited official program snapshot.",
+    };
+  }
+
+  let ingested: Awaited<ReturnType<typeof ingestedRecords>> = null;
+  try {
+    ingested = options.store
+      ? await ingestedRecords(input, options.store)
+      : null;
+  } catch {
+    return {
+      ...base,
+      status: fallback.length > 0 ? "cached-fallback" : "unavailable",
+      records: fallback,
+      warning: fallback.length > 0
+        ? "The Assistance Listings snapshot store is unavailable. Showing the audited official program snapshot."
+        : "The Assistance Listings snapshot store is unavailable, and no validated fallback matched this query.",
+    };
+  }
+  if (ingested) {
+    return {
+      ...base,
+      retrievedAt: ingested.metadata.retrievedAt,
+      status: "cached",
+      records: ingested.records,
+      warning: `Showing the official cached Assistance Listings CSV snapshot last modified ${ingested.metadata.lastModified ?? "at an unknown time"}.`,
     };
   }
 
@@ -180,6 +212,6 @@ export async function searchAssistanceListings(
     ...base,
     status: "cached-fallback",
     records: fallback,
-    warning: "The published Assistance Listings endpoint requires schema verification before live use. Showing the audited official program snapshot.",
+    warning: "No ingested Assistance Listings CSV snapshot is configured. Showing the audited official program snapshot.",
   };
 }
