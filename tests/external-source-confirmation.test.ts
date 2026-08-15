@@ -11,7 +11,9 @@ const workbenchSource = readFileSync(
 test("every external official-record action is gated by one confirmation dialog", () => {
   assert.match(workbenchSource, /role="dialog"/);
   assert.match(workbenchSource, /aria-modal="true"/);
-  assert.match(workbenchSource, /aria-describedby="external-source-description"[\s\S]*?tabIndex=\{-1\}[\s\S]*?autoFocus/);
+  assert.match(workbenchSource, /const dialogRef = useRef<HTMLElement>\(null\)/);
+  assert.match(workbenchSource, /dialogRef\.current\?\.focus\(\)/);
+  assert.match(workbenchSource, /ref=\{dialogRef\}[\s\S]*?tabIndex=\{-1\}/);
   assert.doesNotMatch(workbenchSource, /onClick=\{onClose\}\s+autoFocus/);
   assert.match(workbenchSource, /Continue to official source/);
 

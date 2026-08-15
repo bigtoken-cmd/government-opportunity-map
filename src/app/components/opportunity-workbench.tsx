@@ -510,15 +510,25 @@ function ExternalSourceConfirmation({
   prompt: ExternalSourcePrompt;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    dialogRef.current?.focus();
+    return () => previouslyFocused?.focus();
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 grid overflow-y-auto bg-[#101a14]/70 px-4 py-6 backdrop-blur-sm sm:place-items-center sm:px-6">
       <section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="external-source-heading"
         aria-describedby="external-source-description"
         tabIndex={-1}
-        autoFocus
         className="m-auto w-full max-w-2xl rounded-[2rem] border border-white/20 bg-[#f8f6ef] p-5 text-[#17211b] shadow-[0_30px_100px_rgba(8,20,12,0.35)] sm:p-8"
       >
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#47795b]">Before you leave Opportunity Map</p>
