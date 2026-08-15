@@ -43,6 +43,16 @@ test("search route rejects malformed JSON", async () => {
   assert.deepEqual(await response.json(), { error: "Request body must be valid JSON." });
 });
 
+test("search route rejects an oversized body before source or model work", async () => {
+  const response = await search(new Request("https://example.test/api/opportunities/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile: { description: "x".repeat(70 * 1024) } }),
+  }));
+  assert.equal(response.status, 413);
+  assert.deepEqual(await response.json(), { error: "Request body is too large." });
+});
+
 test("search route rejects a missing confirmed description", async () => {
   const response = await search(new Request("https://example.test/api/opportunities/search", {
     method: "POST",
@@ -88,8 +98,11 @@ test("cached search returns role-separated records and source warnings", async (
   );
   assert.deepEqual(
     sortedKeys(body.discovery),
-    ["historicalAwards", "programs", "recommendations"],
+    ["historicalAwards", "programs", "recommendations", "resultMeta"],
   );
+  assert.equal(body.discovery.resultMeta.defaultVisible, 5);
+  assert.equal(body.discovery.resultMeta.resultCap, 20);
+  assert.equal(body.discovery.resultMeta.returnedCount, body.discovery.recommendations.length);
   assert.equal(body.sources.length, 4);
   assert.deepEqual(
     body.sources.map((source: { family: string }) => source.family),
@@ -116,8 +129,15 @@ test("cached search returns role-separated records and source warnings", async (
   for (const recommendation of body.discovery.recommendations) {
     assert.deepEqual(
       sortedKeys(recommendation),
-      ["match", "opportunity"],
+      ["intelligence", "match", "opportunity"],
     );
+    assert.deepEqual(
+      sortedKeys(recommendation.intelligence),
+      ["concerns", "decisionSummary", "historicalSupport", "nextAction", "routeType", "whyFit"],
+    );
+    assert.ok(["direct", "partner", "verify", "watch"].includes(recommendation.intelligence.routeType));
+    assert.ok(recommendation.intelligence.decisionSummary);
+    assert.ok(recommendation.intelligence.nextAction.text);
     assert.deepEqual(
       sortedKeys(recommendation.match),
       [
@@ -128,7 +148,10 @@ test("cached search returns role-separated records and source warnings", async (
         "matchedConceptGroups",
         "opportunityId",
         "reason",
+        "scopeDomainMatch",
+        "scopeExactTermMatch",
         "score",
+        "titleDomainMatch",
         "unknownCriticalFacts",
       ],
     );

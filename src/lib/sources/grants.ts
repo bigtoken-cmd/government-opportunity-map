@@ -10,8 +10,9 @@ export interface GrantsSearchInput {
   opportunityNumber?: string;
 }
 
-const SOURCE_NAME = "Grants.gov Search2 API";
+const SOURCE_NAME = "Grants.gov public opportunity APIs";
 const SOURCE_URL = "https://api.grants.gov/v1/api/search2";
+const DETAIL_SOURCE_URL = "https://api.grants.gov/v1/api/fetchOpportunity";
 const SNAPSHOT_RETRIEVED_AT = "2026-08-14T00:00:00.000Z";
 
 const OFFICIAL_SNAPSHOT: readonly Omit<CurrentOpportunityRecord, "source">[] = [
@@ -170,6 +171,7 @@ function cachedRecords(input: GrantsSearchInput): CurrentOpportunityRecord[] {
     })
     .map((record) => ({
       ...record,
+      detailStatus: record.detailStatus ?? "not-requested",
       source: sourceFor(
         record.id.replace(/^grants-/, ""),
         `https://www.grants.gov/search-results-detail/${encodeURIComponent(record.id.replace(/^grants-/, ""))}`,
@@ -210,6 +212,7 @@ export function normalizeGrantsPayload(
         ? stringList(hit.cfdaList)
         : stringList(hit.alnist),
       description: text(hit.synopsis) || text(hit.description),
+      detailStatus: "not-requested",
       source: sourceFor(
         sourceId,
         `https://www.grants.gov/search-results-detail/${encodeURIComponent(sourceId)}`,
@@ -218,6 +221,209 @@ export function normalizeGrantsPayload(
       ),
     }];
   });
+}
+
+function finiteNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value.replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function positiveNumber(value: unknown) {
+  const parsed = finiteNumber(value);
+  return parsed !== undefined && parsed > 0 ? parsed : undefined;
+}
+
+function booleanValue(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  if (/^(true|yes|y)$/i.test(value.trim())) return true;
+  if (/^(false|no|n)$/i.test(value.trim())) return false;
+  return undefined;
+}
+
+function descriptions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): string[] => {
+    if (typeof item === "string") return item.trim() ? [item.trim()] : [];
+    if (!item || typeof item !== "object") return [];
+    const description = text((item as Record<string, unknown>).description);
+    return description ? [description] : [];
+  });
+}
+
+function plainText(value: unknown) {
+  return text(value)
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizedDate(value: unknown) {
+  const raw = text(value);
+  if (!raw) return "";
+  const isoPrefix = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (isoPrefix) return isoPrefix;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : raw;
+}
+
+function assistanceListings(value: Record<string, unknown>) {
+  const records = Array.isArray(value.cfdas)
+    ? value.cfdas
+    : Array.isArray(value.alns)
+      ? value.alns
+      : [];
+  return records.flatMap((item): string[] => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const number = text(record.alnNumber)
+      || text(record.cfdaNumber)
+      || text(record.assistanceListingNumber)
+      || text(record.programNumber)
+      || text(record.number);
+    return /^\d{2}\.\d{3}$/.test(number) ? [number] : [];
+  });
+}
+
+export function normalizeGrantsDetailPayload(
+  payload: unknown,
+  record: CurrentOpportunityRecord,
+  retrievedAt: string,
+): CurrentOpportunityRecord | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  if (Number(root.errorcode) !== 0 || !root.data || typeof root.data !== "object") {
+    return null;
+  }
+  const data = root.data as Record<string, unknown>;
+  const sourceId = record.id.replace(/^grants-/, "");
+  if (text(data.id) !== sourceId) return null;
+  const detailValue = data.synopsis ?? data.forecast;
+  if (!detailValue || typeof detailValue !== "object") return null;
+  const detail = detailValue as Record<string, unknown>;
+  const listings = assistanceListings(data);
+  const deadline = normalizedDate(detail.responseDateStr)
+    || normalizedDate(detail.responseDate)
+    || record.deadline;
+  const openDate = normalizedDate(detail.postingDateStr)
+    || normalizedDate(detail.postingDate)
+    || record.openDate;
+  const description = plainText(detail.synopsisDesc)
+    || plainText(detail.forecastDesc)
+    || record.description;
+  const applicationRoute = text(data.assistURL);
+  return {
+    ...record,
+    opportunityNumber: text(data.opportunityNumber) || record.opportunityNumber,
+    title: text(data.opportunityTitle) || record.title,
+    agency: text(detail.agencyName) || record.agency,
+    openDate,
+    deadline,
+    assistanceListings: listings.length ? listings : record.assistanceListings,
+    description,
+    detailStatus: "enriched",
+    eligibleApplicantTypes: descriptions(detail.applicantTypes),
+    additionalEligibility: plainText(detail.applicantEligibilityDesc),
+    fundingInstruments: descriptions(detail.fundingInstruments),
+    awardFloor: positiveNumber(detail.awardFloor),
+    awardCeiling: positiveNumber(detail.awardCeiling),
+    estimatedFunding: positiveNumber(detail.estimatedFunding),
+    expectedAwards: finiteNumber(detail.numberOfAwards),
+    costSharing: booleanValue(detail.costSharing),
+    ...(applicationRoute ? { applicationRoute } : {}),
+    source: {
+      ...record.source,
+      retrievedAt,
+      snapshotStatus: "live",
+      note: "Official notice details retrieved from the Grants.gov fetchOpportunity API. Verify the current package before acting.",
+    },
+  };
+}
+
+export interface GrantsDetailOptions {
+  fetcher?: typeof fetch;
+  now?: () => Date;
+  timeoutMs?: number;
+  maxRecords?: number;
+  concurrency?: number;
+}
+
+export interface GrantsEnrichmentResult {
+  records: readonly CurrentOpportunityRecord[];
+  requestedCount: number;
+  enrichedCount: number;
+  warning: string | null;
+}
+
+async function fetchGrantDetail(
+  record: CurrentOpportunityRecord,
+  options: GrantsDetailOptions,
+) {
+  const sourceId = record.id.replace(/^grants-/, "");
+  const opportunityId = Number(sourceId);
+  if (!Number.isFinite(opportunityId)) {
+    return { ...record, detailStatus: "unavailable" as const };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 6_000);
+  try {
+    const response = await (options.fetcher ?? fetch)(DETAIL_SOURCE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ opportunityId }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) return { ...record, detailStatus: "unavailable" as const };
+    const normalized = normalizeGrantsDetailPayload(
+      await response.json(),
+      record,
+      (options.now ?? (() => new Date()))().toISOString(),
+    );
+    return normalized ?? { ...record, detailStatus: "unavailable" as const };
+  } catch {
+    return { ...record, detailStatus: "unavailable" as const };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function enrichGrantRecords(
+  records: readonly CurrentOpportunityRecord[],
+  options: GrantsDetailOptions = {},
+): Promise<GrantsEnrichmentResult> {
+  const requested = records.slice(0, options.maxRecords ?? 24);
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 8, 12));
+  const enriched: CurrentOpportunityRecord[] = [];
+  for (let index = 0; index < requested.length; index += concurrency) {
+    enriched.push(...await Promise.all(
+      requested.slice(index, index + concurrency)
+        .map((record) => fetchGrantDetail(record, options)),
+    ));
+  }
+  const enrichedById = new Map(enriched.map((record) => [record.id, record]));
+  const merged = records.map((record) => enrichedById.get(record.id) ?? record);
+  const enrichedCount = enriched.filter((record) => record.detailStatus === "enriched").length;
+  const unavailableCount = requested.length - enrichedCount;
+  return {
+    records: merged,
+    requestedCount: requested.length,
+    enrichedCount,
+    warning: unavailableCount
+      ? `${unavailableCount} of ${requested.length} bounded Grants.gov detail lookups were unavailable; those notice facts remain unknown.`
+      : null,
+  };
 }
 
 export async function searchGrants(

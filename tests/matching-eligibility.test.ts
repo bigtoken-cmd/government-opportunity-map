@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeConcepts } from "../src/lib/concept-normalization";
 import { matchOpportunity, rankOpportunities } from "../src/lib/opportunity-matching";
 import type { CompanyProfile, Opportunity } from "../src/lib/opportunity-types";
 
@@ -78,6 +79,140 @@ test("exact terms and controlled synonyms receive separate score evidence", () =
   );
   assert.ok(exact.score.exactTerms > synonymOnly.score.exactTerms);
   assert.equal(synonymOnly.score.controlledConcepts, 15);
+});
+
+test("municipal watersheds do not synthesize the exact municipal-water term", () => {
+  const concepts = normalizeConcepts("wildfire impacts on municipal watersheds");
+  assert.equal(concepts.exactTerms.includes("municipal water"), false);
+  assert.equal(concepts.missionAreas.includes("water resilience"), false);
+});
+
+test("generic research and commercialization overlap cannot pad unrelated titles", () => {
+  const result = matchOpportunity(
+    {
+      ...company,
+      missionAreas: ["water resilience", "technology commercialization"],
+      controlledConcepts: ["water efficiency", "technical innovation", "commercialization"],
+      technologyAndRd: ["sensor R&D", "research and development"],
+      customerUses: ["commercialization"],
+      samRegistration: "yes",
+    },
+    opportunity({
+      title: "Increasing Market Opportunities for Biofertilizer Exporters",
+      missionAreas: ["technology commercialization"],
+      exactTerms: [],
+      controlledConcepts: ["technical innovation", "commercialization"],
+      technologyAndRd: ["research and development"],
+      customerUses: ["commercialization"],
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.fitStatus, "No Fit");
+  assert.equal(result.decision, "Skip");
+});
+
+test("an exact synopsis term can rescue a valid opportunity with a generic title", () => {
+  const result = matchOpportunity(
+    { ...company, samRegistration: "yes" },
+    opportunity({
+      title: "Technical Assistance Challenge",
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.scopeExactTermMatch, true);
+  assert.notEqual(result.decision, "Skip");
+});
+
+test("oncology and precision-medicine titles do not become hospital-operations fits", () => {
+  const healthcareCompany = {
+    ...company,
+    ...normalizeConcepts([
+      "Healthcare software for hospital administrative work and nurse workflow automation.",
+      "Artificial intelligence, health IT, software R&D, and hospital pilot validation.",
+    ].join(" ")),
+  };
+  const title = "Community Oncology Research Program Clinical Trial";
+  const result = matchOpportunity(
+    healthcareCompany,
+    opportunity({
+      title,
+      ...normalizeConcepts(`${title} healthcare clinical research for cancer patients`),
+      titleConcepts: normalizeConcepts(title),
+      eligibility: { applicantTypes: ["small business", "for-profit"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.scopeExactTermMatch, false);
+  assert.equal(result.decision, "Skip");
+});
+
+test("a generic small-business title requires non-generic official scope evidence", () => {
+  const healthcareCompany = {
+    ...company,
+    ...normalizeConcepts(
+      "Healthcare software for hospital operations with software research and development.",
+    ),
+  };
+  const title = "Small Business Innovation Research Parent Program Clinical Trial Optional";
+  const result = matchOpportunity(
+    healthcareCompany,
+    opportunity({
+      title,
+      scopeSummary: "This notice supports healthcare software for hospital operations.",
+      ...normalizeConcepts(`${title} healthcare software for hospital operations`),
+      titleConcepts: normalizeConcepts(title),
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.scopeDomainMatch, true);
+  assert.notEqual(result.decision, "Skip");
+});
+
+test("a generic small-business title and generic commercialization scope are not enough", () => {
+  const manufacturingCompany = {
+    ...company,
+    ...normalizeConcepts(
+      "Advanced manufacturing for aerospace with materials research and development.",
+    ),
+  };
+  const title = "Small Business Innovation Research Parent Program";
+  const result = matchOpportunity(
+    manufacturingCompany,
+    opportunity({
+      title,
+      scopeSummary: "Supports scientific innovation, research and development, and commercialization.",
+      ...normalizeConcepts(`${title} scientific innovation and commercialization`),
+      titleConcepts: normalizeConcepts(title),
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.scopeDomainMatch, false);
+  assert.equal(result.decision, "Skip");
+});
+
+test("a cybersecurity company does not match an education-first title on cyber alone", () => {
+  const cyberCompany = {
+    ...company,
+    ...normalizeConcepts(
+      "Cybersecurity threat detection and security analytics R&D for small organizations.",
+    ),
+  };
+  const title = "Artificial Intelligence and Cybersecurity Education Innovation and Scholarship for Service";
+  const result = matchOpportunity(
+    cyberCompany,
+    opportunity({
+      title,
+      ...normalizeConcepts(title),
+      titleConcepts: normalizeConcepts(title),
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.decision, "Skip");
 });
 
 test("deadline breaks ties without changing fit score", () => {

@@ -18,11 +18,26 @@ import {
   type StoredWorkspaceRecord,
   type WorkspaceStore,
 } from "../src/lib/persistence/workspace-store";
-import type { WorkspaceState } from "../src/lib/workspace-state";
+import type {
+  WorkspaceState,
+  WorkspaceStateV3,
+} from "../src/lib/workspace-state";
 
 const INITIAL_WORKSPACE: WorkspaceState = {
   version: 2,
   selectedOpportunityId: "grants-359666",
+  checklistByOpportunity: {
+    "grants-359666": {
+      eligibility: false,
+    },
+  },
+};
+
+const MIGRATED_INITIAL_WORKSPACE: WorkspaceStateV3 = {
+  version: 3,
+  selectedOpportunityId: "grants-359666",
+  savedOpportunityIds: [],
+  savedOpportunityStateByOpportunityId: {},
   checklistByOpportunity: {
     "grants-359666": {
       eligibility: false,
@@ -125,7 +140,7 @@ test("opaque credentials isolate workspace reads and updates", async () => {
     },
   ));
   assert.equal(authorized.status, 200);
-  assert.deepEqual((await authorized.json()).workspace, INITIAL_WORKSPACE);
+  assert.deepEqual((await authorized.json()).workspace, MIGRATED_INITIAL_WORKSPACE);
 
   const updatedWorkspace: WorkspaceState = {
     ...INITIAL_WORKSPACE,
@@ -183,6 +198,38 @@ test("opaque credentials isolate workspace reads and updates", async () => {
     },
   ));
   assert.equal(crossWorkspace.status, 401);
+});
+
+test("v3 persistence preserves ordered saved opportunities and sparse pursuit states", async () => {
+  const handlers = createWorkspaceHandlers(new MemoryWorkspaceStore());
+  const workspace: WorkspaceStateV3 = {
+    version: 3,
+    selectedOpportunityId: "grants-b",
+    savedOpportunityIds: ["grants-b", "grants-a"],
+    savedOpportunityStateByOpportunityId: {
+      "grants-b": "verifying",
+      "grants-a": "done",
+    },
+    checklistByOpportunity: {
+      "grants-b": { eligibility: true },
+    },
+  };
+  const response = await handlers.POST(jsonRequest(
+    "https://example.test/api/workspace",
+    "POST",
+    {
+      workspace,
+      founderContact: { name: "", role: "", email: "" },
+    },
+  ));
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.deepEqual(body.workspace.savedOpportunityIds, ["grants-b", "grants-a"]);
+  assert.deepEqual(body.workspace.savedOpportunityStateByOpportunityId, {
+    "grants-b": "verifying",
+    "grants-a": "done",
+  });
 });
 
 test("workspace stores receive only token hashes", async () => {
@@ -270,7 +317,7 @@ test("workspace persistence rejects prototype-polluting checklist keys", async (
 
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
-    error: "A valid WorkspaceState v2 body is required.",
+    error: "A valid WorkspaceState v2 or v3 body is required.",
   });
 });
 

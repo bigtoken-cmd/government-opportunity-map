@@ -16,8 +16,23 @@ const SUPPORTED_PROFILE_FIELDS = new Set([
   "industry",
   "technology",
   "location",
+  "yearFounded",
+  "employees",
+  "revenue",
+  "capitalRaised",
+  "capitalNeed",
+  "useOfFunds",
   "customers",
   "researchActivities",
+  "applicantType",
+  "legalEntityType",
+  "ownership",
+  "productStage",
+  "researchStage",
+  "smallBusinessStatus",
+  "usEntityStatus",
+  "samStatus",
+  "uei",
 ]);
 
 type EvidenceSourceType = Extract<FounderEvidenceSourceType, "manual" | "pdf">;
@@ -160,9 +175,25 @@ export function createEvidencePost(
       industry: proposed.industry || baseProfile.industry,
       technology: proposed.technology || baseProfile.technology,
       location: proposed.location || baseProfile.location,
+      yearFounded: proposed.yearFounded || baseProfile.yearFounded,
+      employees: proposed.employees || baseProfile.employees,
+      revenue: proposed.revenue || baseProfile.revenue,
+      capitalRaised: proposed.capitalRaised || baseProfile.capitalRaised,
+      capitalNeed: proposed.capitalNeed || baseProfile.capitalNeed,
+      useOfFunds: proposed.useOfFunds || baseProfile.useOfFunds,
       customers: proposed.customers || baseProfile.customers,
       researchActivities:
         proposed.researchActivities || baseProfile.researchActivities,
+      applicantType: proposed.applicantType || baseProfile.applicantType,
+      legalEntityType: proposed.legalEntityType || baseProfile.legalEntityType,
+      ownership: proposed.ownership || baseProfile.ownership,
+      productStage: proposed.productStage || baseProfile.productStage,
+      researchStage: proposed.researchStage || baseProfile.researchStage,
+      smallBusinessStatus:
+        proposed.smallBusinessStatus || baseProfile.smallBusinessStatus,
+      usEntityStatus: proposed.usEntityStatus || baseProfile.usEntityStatus,
+      samStatus: proposed.samStatus || baseProfile.samStatus,
+      uei: proposed.uei || baseProfile.uei,
     };
 
     return NextResponse.json({

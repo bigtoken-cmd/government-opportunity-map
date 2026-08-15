@@ -1,3 +1,4 @@
+import { normalizeConcepts } from "./concept-normalization";
 import type {
   CompanyProfile,
   DecisionLabel,
@@ -9,6 +10,23 @@ import type {
 } from "./opportunity-types";
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase("en-US");
+const GENERIC_TITLE_CONCEPTS = new Set([
+  "technology commercialization",
+  "technical innovation",
+  "commercialization",
+  "research and development",
+  "artificial intelligence",
+  "software r&d",
+]);
+const BROAD_SCOPE_EXACT_TERMS = new Set([
+  "healthcare",
+  "artificial intelligence",
+  "cybersecurity",
+]);
+const SPECIALIZED_TITLE_MISSIONS = new Set([
+  "biomedical research",
+  "education and workforce",
+]);
 const setOf = (values: readonly string[]) => new Set(values.map(normalize));
 const overlap = (left: readonly string[], right: readonly string[]) => {
   const normalizedLeft = setOf(left);
@@ -67,6 +85,15 @@ export function evaluateEligibility(company: CompanyProfile, opportunity: Opport
   };
 
   listCheck("applicant type", company.applicantTypes, requirements.applicantTypes, "applicantType");
+  for (const excluded of requirements.excludedApplicantTypes ?? []) {
+    if (hasAllowedValue(company.applicantTypes, [excluded])) {
+      checks.push({
+        field: "applicant type",
+        state: "fail",
+        detail: `${excluded} applicants are excluded by the notice`,
+      });
+    }
+  }
   listCheck("legal entity type", company.legalEntityTypes, requirements.legalEntityTypes, "legalEntityType");
   add(checkBoolean("SAM registration", company.samRegistration, requirements.samRegistration));
   add(checkBoolean("UEI", company.uei, requirements.uei));
@@ -118,6 +145,78 @@ function amountOverlap(
   return companyMin <= opportunityMax && opportunityMin <= companyMax;
 }
 
+function hasTitleDomainMatch(company: CompanyProfile, opportunity: Opportunity) {
+  const titleConcepts = opportunity.titleConcepts ?? normalizeConcepts(opportunity.title);
+  const companyMissions = setOf(company.missionAreas);
+  const unmatchedSpecializedMission = titleConcepts.missionAreas.some((mission) =>
+    SPECIALIZED_TITLE_MISSIONS.has(normalize(mission))
+    && !companyMissions.has(normalize(mission)));
+  if (unmatchedSpecializedMission) return false;
+  const companyConcepts = [
+    ...company.missionAreas,
+    ...company.exactTerms,
+    ...company.controlledConcepts,
+    ...company.technologyAndRd,
+    ...company.customerUses,
+  ];
+  const companySet = setOf(companyConcepts.filter((concept) =>
+    !GENERIC_TITLE_CONCEPTS.has(normalize(concept))));
+  const titleValues = [
+    ...titleConcepts.missionAreas,
+    ...titleConcepts.exactTerms,
+    ...titleConcepts.controlledConcepts,
+    ...titleConcepts.technologyAndRd,
+    ...titleConcepts.customerUses,
+  ];
+  return titleValues.some((concept) => {
+    const normalized = normalize(concept);
+    return !GENERIC_TITLE_CONCEPTS.has(normalized) && companySet.has(normalized);
+  });
+}
+
+function hasScopeExactTermMatch(company: CompanyProfile, opportunity: Opportunity) {
+  const companyTerms = setOf(company.exactTerms.filter((term) =>
+    !BROAD_SCOPE_EXACT_TERMS.has(normalize(term))));
+  return opportunity.exactTerms.some((term) => {
+    const normalized = normalize(term);
+    return !BROAD_SCOPE_EXACT_TERMS.has(normalized) && companyTerms.has(normalized);
+  });
+}
+
+function hasScopeDomainMatch(company: CompanyProfile, opportunity: Opportunity) {
+  if (!opportunity.scopeSummary?.trim()) return false;
+  const scopeConcepts = normalizeConcepts(opportunity.scopeSummary);
+  const companyMissions = setOf(company.missionAreas);
+  const unmatchedSpecializedMission = scopeConcepts.missionAreas.some((mission) =>
+    SPECIALIZED_TITLE_MISSIONS.has(normalize(mission))
+    && !companyMissions.has(normalize(mission)));
+  if (unmatchedSpecializedMission) return false;
+  const excluded = new Set([
+    ...GENERIC_TITLE_CONCEPTS,
+    ...BROAD_SCOPE_EXACT_TERMS,
+  ]);
+  const companyConcepts = [
+    ...company.missionAreas,
+    ...company.exactTerms,
+    ...company.controlledConcepts,
+    ...company.technologyAndRd,
+    ...company.customerUses,
+  ];
+  const companySet = setOf(companyConcepts.filter((concept) =>
+    !excluded.has(normalize(concept))));
+  const scopeValues = [
+    ...scopeConcepts.missionAreas,
+    ...scopeConcepts.exactTerms,
+    ...scopeConcepts.controlledConcepts,
+    ...scopeConcepts.technologyAndRd,
+    ...scopeConcepts.customerUses,
+  ];
+  return scopeValues.some((concept) => {
+    const normalized = normalize(concept);
+    return !excluded.has(normalized) && companySet.has(normalized);
+  });
+}
+
 export function matchOpportunity(company: CompanyProfile, opportunity: Opportunity): MatchResult {
   const eligibility = evaluateEligibility(company, opportunity);
   const score = scoreOpportunity(company, opportunity);
@@ -125,10 +224,29 @@ export function matchOpportunity(company: CompanyProfile, opportunity: Opportuni
   const hasHardFailure = eligibility.some((check) => check.state === "fail");
   const partnerRequired = eligibility.some((check) => check.state === "partner");
   const groups = matchedGroups(company, opportunity);
-  const fitStatus: FitStatus = hasHardFailure ? "No Fit" : unknownCriticalFacts.length ? "Potential Fit" : score.total >= 70 && groups.length >= 2 ? "Strong Fit" : "Potential Fit";
-  const decision = decide({ hasHardFailure, partnerRequired, unknownCriticalFacts, score: score.total, groups: groups.length });
+  const titleDomainMatch = hasTitleDomainMatch(company, opportunity);
+  const scopeExactTermMatch = hasScopeExactTermMatch(company, opportunity);
+  const scopeDomainMatch = hasScopeDomainMatch(company, opportunity);
+  const domainEvidenceMatch = titleDomainMatch || scopeExactTermMatch || scopeDomainMatch;
+  const fitStatus: FitStatus = hasHardFailure || !domainEvidenceMatch
+    ? "No Fit"
+    : unknownCriticalFacts.length
+      ? "Potential Fit"
+      : score.total >= 70 && groups.length >= 2
+        ? "Strong Fit"
+        : "Potential Fit";
+  const decision = decide({
+    hasHardFailure,
+    partnerRequired,
+    unknownCriticalFacts,
+    score: score.total,
+    groups: groups.length,
+    domainEvidenceMatch,
+  });
   const reason = hasHardFailure
     ? "A hard eligibility requirement is not met."
+    : !domainEvidenceMatch
+      ? "The notice title and synopsis do not contain a non-generic domain match."
     : partnerRequired
       ? "A required capability can be supplied only through an eligible partner."
       : unknownCriticalFacts.length
@@ -136,7 +254,7 @@ export function matchOpportunity(company: CompanyProfile, opportunity: Opportuni
         : groups.length < 2
           ? "Fewer than two meaningful concept groups matched."
           : "Deterministic rubric and eligibility checks completed.";
-  return { companyId: company.id, opportunityId: opportunity.id, fitStatus, decision, score, eligibility, matchedConceptGroups: groups, unknownCriticalFacts, reason };
+  return { companyId: company.id, opportunityId: opportunity.id, fitStatus, decision, score, eligibility, matchedConceptGroups: groups, unknownCriticalFacts, titleDomainMatch, scopeExactTermMatch, scopeDomainMatch, reason };
 }
 
 function matchedGroups(company: CompanyProfile, opportunity: Opportunity): string[] {
@@ -150,8 +268,8 @@ function matchedGroups(company: CompanyProfile, opportunity: Opportunity): strin
   return groups.filter(([, left, right]) => overlap(left, right).length > 0).map(([name]) => name);
 }
 
-function decide(input: { hasHardFailure: boolean; partnerRequired: boolean; unknownCriticalFacts: readonly string[]; score: number; groups: number }): DecisionLabel {
-  if (input.hasHardFailure) return "Skip";
+function decide(input: { hasHardFailure: boolean; partnerRequired: boolean; unknownCriticalFacts: readonly string[]; score: number; groups: number; domainEvidenceMatch: boolean }): DecisionLabel {
+  if (input.hasHardFailure || !input.domainEvidenceMatch) return "Skip";
   if (input.score < 35 || input.groups < 2) return "Skip";
   if (input.partnerRequired) return "Partner-dependent";
   if (input.unknownCriticalFacts.length) return "Verify first";

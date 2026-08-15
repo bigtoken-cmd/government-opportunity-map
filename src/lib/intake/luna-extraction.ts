@@ -9,11 +9,26 @@ const FOUNDER_PROFILE_FIELDS = [
   "technology",
   "location",
   "yearFounded",
+  "employees",
+  "revenue",
+  "capitalRaised",
+  "capitalNeed",
+  "useOfFunds",
   "customers",
   "researchActivities",
+  "applicantType",
+  "legalEntityType",
+  "ownership",
+  "productStage",
+  "researchStage",
+  "smallBusinessStatus",
+  "usEntityStatus",
+  "samStatus",
+  "uei",
 ] as const;
 
 const REDACTED_CREDENTIAL = "[REDACTED_CREDENTIAL]";
+const REDACTED_PERSONAL_DATA = "[REDACTED_PERSONAL_DATA]";
 const EXTRACTION_POLICY = `# Founder Evidence Extraction Policy
 
 ## Trust boundary
@@ -33,7 +48,7 @@ const EXTRACTION_POLICY = `# Founder Evidence Extraction Policy
 ## Prohibited decisions
 - Do not infer or decide government facts, eligibility, scores, deadlines, award amounts, totals, provenance, recommendations, or application decisions.`;
 
-export type FounderEvidenceSourceType = "website" | "manual" | "pdf";
+export type FounderEvidenceSourceType = "website" | "manual" | "pdf" | "docx" | "pptx";
 export type FounderProfileProposalField = (typeof FOUNDER_PROFILE_FIELDS)[number];
 export type ExternalProcessingReason =
   | "consent_required"
@@ -104,8 +119,22 @@ function blankProfile(): Record<FounderProfileProposalField, string> {
     technology: "",
     location: "",
     yearFounded: "",
+    employees: "",
+    revenue: "",
+    capitalRaised: "",
+    capitalNeed: "",
+    useOfFunds: "",
     customers: "",
     researchActivities: "",
+    applicantType: "",
+    legalEntityType: "",
+    ownership: "",
+    productStage: "",
+    researchStage: "",
+    smallBusinessStatus: "",
+    usEntityStatus: "",
+    samStatus: "",
+    uei: "",
   };
 }
 
@@ -394,10 +423,17 @@ function redactSensitiveEvidence(value: string): RedactionResult {
   redact(/\bgh[pousr]_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/g);
   redact(/\bxox[baprs]-[A-Za-z0-9-]{16,}\b/g);
   redact(/\b(?:AIza[0-9A-Za-z_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|hf_[A-Za-z0-9]{20,}|npm_[A-Za-z0-9]{20,})\b/g);
-  redact(/\b\d{3}-\d{2}-\d{4}\b/g);
-  redact(/\b(?:EIN|TIN)\s*[:#]?\s*\d{2}-\d{7}\b/gi);
-  redact(/\bUEI\s*[:#]?\s*[A-Z0-9]{12}\b/gi);
-  redact(/\bCAGE(?:\s+CODE)?\s*[:#]?\s*[A-Z0-9]{5}\b/gi);
+  redact(/\b\d{3}-\d{2}-\d{4}\b/g, REDACTED_PERSONAL_DATA);
+  redact(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, REDACTED_PERSONAL_DATA);
+  redact(/(?<!\d)(?:\+?1[ .-]?)?(?:\(\d{3}\)|\d{3}[ .-])\s*\d{3}[ .-]\d{4}(?!\d)/g, REDACTED_PERSONAL_DATA);
+  redact(/\b\d{1,6}\s+(?:[A-Z0-9.'-]+\s+){0,5}(?:STREET|ST|AVENUE|AVE|ROAD|RD|BOULEVARD|BLVD|LANE|LN|DRIVE|DR|COURT|CT|WAY|PARKWAY|PKWY)\b(?:\s+(?:APT|SUITE|UNIT|#)\s*[A-Z0-9-]+)?/gi, REDACTED_PERSONAL_DATA);
+  redact(/\b(?:BANK\s+ACCOUNT|ACCOUNT\s+NUMBER|ROUTING\s+NUMBER|ABA)\s*[:#]?\s*(?:[A-Z0-9][ -]?){6,34}(?=$|[\s,;.)])/gim, REDACTED_PERSONAL_DATA);
+  redact(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, REDACTED_PERSONAL_DATA);
+  redact(/\b\d{8,17}\b/g, REDACTED_PERSONAL_DATA);
+  redact(/\b(?:EIN|TIN)\s*[:#]?\s*\d{2}-\d{7}\b/gi, REDACTED_PERSONAL_DATA);
+  redact(/\bUEI\s*[:#]?\s*[A-Z0-9]{12}\b/gi, REDACTED_PERSONAL_DATA);
+  redact(/\b(?=[A-Z0-9]{12}\b)(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]{12}\b/g, REDACTED_PERSONAL_DATA);
+  redact(/\bCAGE(?:\s+CODE)?\s*[:#]?\s*[A-Z0-9]{5}\b/gi, REDACTED_PERSONAL_DATA);
 
   return { text, count, unsafe: false };
 }
@@ -465,7 +501,7 @@ function isInertReasoningItem(value: Record<string, unknown>) {
   return true;
 }
 
-function isJsonWithoutDuplicateKeys(value: string) {
+export function isJsonWithoutDuplicateKeys(value: string) {
   let index = 0;
   let valid = true;
 
@@ -590,10 +626,17 @@ function isJsonWithoutDuplicateKeys(value: string) {
   return valid && index === value.length;
 }
 
-function readStructuredClaims(
-  responseBody: unknown,
-  evidenceText: string,
-): StructuredClaim[] | null {
+export function sanitizeEvidenceForExternalProcessing(value: string) {
+  const redacted = redactSensitiveEvidence(value);
+  return {
+    text: redacted.text,
+    redactionCount: redacted.count,
+    unsafe: redacted.unsafe,
+    usable: !redacted.unsafe && hasUsefulEvidence(redacted.text),
+  };
+}
+
+export function readCompletedOutputText(responseBody: unknown): string | null {
   if (
     !isRecord(responseBody) ||
     responseBody.status !== "completed" ||
@@ -641,11 +684,19 @@ function readStructuredClaims(
   ) {
     return null;
   }
+  return outputText.text;
+}
 
+function readStructuredClaims(
+  responseBody: unknown,
+  evidenceText: string,
+): StructuredClaim[] | null {
+  const outputText = readCompletedOutputText(responseBody);
+  if (outputText === null) return null;
   let parsed: unknown;
   try {
-    if (!isJsonWithoutDuplicateKeys(outputText.text)) return null;
-    parsed = JSON.parse(outputText.text);
+    if (!isJsonWithoutDuplicateKeys(outputText)) return null;
+    parsed = JSON.parse(outputText);
   } catch {
     return null;
   }

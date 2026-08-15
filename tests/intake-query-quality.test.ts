@@ -97,6 +97,10 @@ test("grouped source queries are bounded, noise-filtered, and deduplicated", asy
   assert.deepEqual(buildSearchQueries(company), [
     { term: "municipal water", family: "exact" },
     { term: "water efficiency", family: "controlled" },
+    { term: "municipal utilities", family: "customer" },
+    { term: "water resilience", family: "mission" },
+    { term: "small business innovation research", family: "technology" },
+    { term: "sensor R&D", family: "technology" },
   ]);
 
   const grantKeywords: string[] = [];
@@ -136,6 +140,10 @@ test("grouped source queries are bounded, noise-filtered, and deduplicated", asy
   assert.deepEqual(grantKeywords, [
     "municipal water",
     "water efficiency",
+    "municipal utilities",
+    "water resilience",
+    "small business innovation research",
+    "sensor R&D",
   ]);
   assert.equal(result.query.keyword, "municipal water");
   assert.equal(result.sources[0].status, "live");
@@ -190,7 +198,7 @@ test("a partial grouped-query failure does not hide validated live records", asy
   const result = await searchGovernmentSources(company, { fetcher });
   const grants = result.sources.find((source) => source.family === "grants");
 
-  assert.equal(grantsRequest, 2);
+  assert.equal(grantsRequest, 6);
   assert.equal(grants?.status, "live");
   assert.equal(grants?.recordCount, 1);
   assert.match(grants?.warning ?? "", /malformed or incomplete response/i);

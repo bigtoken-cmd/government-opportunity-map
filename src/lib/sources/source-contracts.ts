@@ -14,6 +14,16 @@ export interface CurrentOpportunityRecord {
   deadline: string;
   assistanceListings: readonly string[];
   description: string;
+  detailStatus?: "enriched" | "unavailable" | "not-requested";
+  eligibleApplicantTypes?: readonly string[];
+  additionalEligibility?: string;
+  fundingInstruments?: readonly string[];
+  awardFloor?: number;
+  awardCeiling?: number;
+  estimatedFunding?: number;
+  expectedAwards?: number;
+  costSharing?: boolean;
+  applicationRoute?: string;
   source: Provenance;
 }
 

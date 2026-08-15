@@ -11,6 +11,32 @@
   "observability": {
     "enabled": true
   },
+  "ratelimits": [
+    {
+      "name": "OPPORTUNITY_SEARCH_CLIENT_LIMITER",
+      "namespace_id": "26081503",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    },
+    {
+      "name": "OPPORTUNITY_SEMANTIC_CLIENT_LIMITER",
+      "namespace_id": "26081501",
+      "simple": {
+        "limit": 6,
+        "period": 60
+      }
+    },
+    {
+      "name": "OPPORTUNITY_SEMANTIC_GLOBAL_LIMITER",
+      "namespace_id": "26081502",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ],
   "d1_databases": [
     {
       "binding": "WORKSPACE_DB",

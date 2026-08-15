@@ -987,3 +987,28 @@ The product wins if the founder can answer:
 7. What should I do next?
 
 That outcome is worth more than adding another adapter, agent, scheduler, or dashboard.
+
+## 2026-08-15 authorized semantic-cap amendment
+
+This amendment records the later product decision to use a hybrid Luna semantic reranker. It supersedes the earlier wording above only where that wording prohibited every model effect on ordering or certainty.
+
+Implemented backend boundary:
+
+- Deterministic code remains authoritative for government facts, eligibility, routing, dates, amounts, provenance, and the raw rubric score.
+- After official detail enrichment and deterministic rejection, one consent-gated Luna request reviews every returned recommendation, up to 20.
+- Luna returns only `strong`, `partial`, or `weak`, selected company/notice evidence IDs, and controlled mismatch codes. It cannot return prose, scores, facts, dates, or eligibility conclusions.
+- `strong` preserves the deterministic result.
+- `partial` can only set `effectiveScore` to `min(score.total, 69)` and can change `Pursue now` to `Verify first`.
+- `weak` removes the result. Even a weak label must cite at least one valid company evidence ID and one valid official notice evidence ID.
+- Invalid output, timeout, missing provider access, redaction failure, or rate-limit failure preserves the complete deterministic result set.
+- The public paid-call path is bounded by a 64 KiB request limit plus Cloudflare per-client and regional rate-limit bindings.
+
+Lincoln UI integration remains a separate step. The UI must:
+
+1. Include `externalProcessingConsent: true` in the opportunity-search request only while the existing disclosure checkbox remains checked.
+2. Display `match.effectiveScore ?? match.score.total`, never the raw score alone after a semantic cap.
+3. Preserve the backend `recommendation.intelligence` object, including its evidence-linked concerns and next action, rather than rebuilding and discarding those fields client-side.
+4. Treat top-level `semanticReview` as optional and show deterministic-fallback status when `completed` is false.
+5. Keep all new fields additive so the deterministic response continues to work with no consent or provider access.
+
+The test-only response seam is `tests/fixtures/opportunity-search-response-v2.ts`. No Lincoln-owned UI file is changed by the backend-first implementation.

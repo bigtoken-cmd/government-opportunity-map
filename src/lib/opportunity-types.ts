@@ -9,6 +9,43 @@ export type DecisionLabel =
   | "Partner-dependent"
   | "Watch"
   | "Skip";
+export type RouteType = "direct" | "partner" | "verify" | "watch";
+export type SemanticAlignment = "strong" | "partial" | "weak";
+export type SemanticMismatchCode =
+  | "different_primary_outcome"
+  | "different_end_user"
+  | "different_research_domain"
+  | "generic_domain_overlap_only";
+
+export interface SemanticFitReview {
+  alignment: SemanticAlignment;
+  companyEvidenceIds: readonly string[];
+  opportunityEvidenceIds: readonly string[];
+  mismatchCodes: readonly SemanticMismatchCode[];
+  provider: "openai";
+  model: "gpt-5.6-luna";
+  basis: "official-scope-cap-only";
+}
+
+export interface EvidenceMapping {
+  companyFact: string;
+  companyEvidenceId?: string;
+  opportunityFact: string;
+  opportunityEvidenceId: string;
+  sourceUrl: string;
+}
+
+export interface RecommendationConcern {
+  severity: "blocking" | "verify" | "caution";
+  text: string;
+  evidenceId?: string;
+  sourceUrl?: string;
+}
+
+export interface RecommendationAction {
+  type: "apply" | "verify" | "find-partner" | "monitor";
+  text: string;
+}
 
 export interface Provenance {
   sourceId: string;
@@ -26,6 +63,22 @@ export interface SourcedFact<T> {
 }
 
 export type RegistrationState = "yes" | "no" | "unknown";
+
+export interface FounderFacts {
+  yearFounded?: string;
+  employees?: string;
+  revenue?: string;
+  capitalRaised?: string;
+  capitalNeed?: string;
+  useOfFunds?: string;
+  applicantType?: string;
+  legalEntityType?: string;
+  ownership?: string;
+  productStage?: string;
+  researchStage?: string;
+  smallBusinessStatus?: string;
+  usEntityStatus?: string;
+}
 
 export interface CompanyProfile {
   id: string;
@@ -46,11 +99,13 @@ export interface CompanyProfile {
   smallBusiness: RegistrationState;
   requiredClearances: readonly string[];
   certifications: readonly string[];
+  founderFacts?: FounderFacts;
   profileProvenance: Provenance;
 }
 
 export interface EligibilityRequirement {
   applicantTypes?: readonly string[];
+  excludedApplicantTypes?: readonly string[];
   legalEntityTypes?: readonly string[];
   samRegistration?: boolean;
   uei?: boolean;
@@ -71,6 +126,14 @@ export interface EligibilityRequirement {
   )[];
 }
 
+export interface OpportunityConceptEvidence {
+  missionAreas: readonly string[];
+  exactTerms: readonly string[];
+  controlledConcepts: readonly string[];
+  technologyAndRd: readonly string[];
+  customerUses: readonly string[];
+}
+
 export interface Opportunity {
   id: string;
   title: string;
@@ -81,6 +144,15 @@ export interface Opportunity {
   opportunityStatus: "open" | "forecast" | "program" | "closed" | "historical";
   deadline?: string;
   amount?: { min?: number; max?: number; currency: "USD" };
+  assistanceListings?: readonly string[];
+  costShare?: boolean;
+  applicationRoute?: string;
+  fundingInstruments?: readonly string[];
+  eligibilitySummary?: string;
+  noticeDetailStatus?: "enriched" | "unavailable" | "not-requested";
+  documentRequirements?: readonly string[];
+  scopeSummary?: string;
+  titleConcepts?: OpportunityConceptEvidence;
   missionAreas: readonly string[];
   exactTerms: readonly string[];
   controlledConcepts: readonly string[];
@@ -117,5 +189,11 @@ export interface MatchResult {
   eligibility: readonly EligibilityCheck[];
   matchedConceptGroups: readonly string[];
   unknownCriticalFacts: readonly string[];
+  titleDomainMatch?: boolean;
+  scopeExactTermMatch?: boolean;
+  scopeDomainMatch?: boolean;
+  /** Raw deterministic score remains in score.total; this optional value is a Luna-reviewed downward cap only. */
+  effectiveScore?: number;
+  semanticReview?: SemanticFitReview;
   reason: string;
 }

@@ -22,7 +22,10 @@ test("evidence profile merge keeps only supported editable suggestions", () => {
       companyName: "Acme Water Labs",
       description: "Builds municipal water sensors.",
       technology: "municipal water sensors",
+      yearFounded: "2021",
       researchActivities: "Sensor calibration research",
+      ownership: "U.S.-owned",
+      samStatus: "Active",
     },
   );
 });

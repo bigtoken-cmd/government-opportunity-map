@@ -88,8 +88,10 @@ function document(completed: boolean): PersistedWorkspaceDocument {
   return {
     version: 1,
     workspace: {
-      version: 2,
+      version: 3,
       selectedOpportunityId: "grants-359666",
+      savedOpportunityIds: ["grants-359666"],
+      savedOpportunityStateByOpportunityId: {},
       checklistByOpportunity: {
         "grants-359666": {
           eligibility: completed,
@@ -144,6 +146,35 @@ test("D1 workspace store preserves create and update existence semantics", async
       workspaceId: "missing-workspace",
     }),
     /Workspace does not exist/,
+  );
+});
+
+test("D1 workspace store migrates legacy v2 workspace JSON on read", async () => {
+  const database = new FakeD1Database();
+  database.rows.set("workspace-1", {
+    workspace_id: "workspace-1",
+    access_token_hash: "a".repeat(64),
+    document_json: JSON.stringify({
+      version: 1,
+      workspace: {
+        version: 2,
+        selectedOpportunityId: "legacy-opportunity",
+        checklistByOpportunity: {
+          "legacy-opportunity": { eligibility: true },
+        },
+      },
+      founderContact: { name: "", role: "", email: "" },
+      updatedAt: "2026-08-15T00:00:00.000Z",
+    }),
+    updated_at: "2026-08-15T00:00:00.000Z",
+  });
+
+  const stored = await new D1WorkspaceStore(database).get("workspace-1");
+  assert.equal(stored?.document.workspace.version, 3);
+  assert.deepEqual(stored?.document.workspace.savedOpportunityIds, []);
+  assert.equal(
+    stored?.document.workspace.checklistByOpportunity["legacy-opportunity"].eligibility,
+    true,
   );
 });
 

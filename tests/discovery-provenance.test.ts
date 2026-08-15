@@ -55,7 +55,7 @@ function record(index: number): CurrentOpportunityRecord {
   };
 }
 
-test("discovery returns at most five actionable current opportunities by default", () => {
+test("discovery returns at most twenty actionable current opportunities with result metadata", () => {
   const records = Array.from({ length: 25 }, (_, index) => record(index));
   const result = discoverOpportunities(
     company,
@@ -73,6 +73,14 @@ test("discovery returns at most five actionable current opportunities by default
     })),
   );
 
-  assert.equal(result.recommendations.length, 5);
+  assert.equal(result.recommendations.length, 20);
+  assert.deepEqual(result.resultMeta, {
+    qualifyingCount: 25,
+    returnedCount: 20,
+    defaultVisible: 5,
+    resultCap: 20,
+    truncated: true,
+  });
   assert.ok(result.recommendations.every((item) => item.opportunity.source.sourceId));
+  assert.ok(result.recommendations.every((item) => item.intelligence.whyFit.length > 0));
 });
