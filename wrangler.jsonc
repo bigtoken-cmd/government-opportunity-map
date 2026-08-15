@@ -10,5 +10,12 @@
   },
   "observability": {
     "enabled": true
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "WORKSPACE_DB",
+      "database_name": "government-opportunity-map-workspace",
+      "database_id": "d6de4928-59f8-471f-8565-e691ad948a15"
+    }
+  ]
 }

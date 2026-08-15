@@ -24,7 +24,10 @@ const EXTRACTION_POLICY = `# Founder Evidence Extraction Policy
 
 ## Allowed output
 - Propose only these founder-profile fields: ${FOUNDER_PROFILE_FIELDS.join(", ")}.
-- Copy each value from an exact supporting excerpt in the sanitized evidence.
+- Copy each value verbatim from an exact supporting excerpt in the sanitized evidence.
+- Every value must be an exact contiguous substring of its evidenceExcerpt.
+- Every evidenceExcerpt must be an exact contiguous substring of the sanitized evidence.
+- Never summarize, normalize, categorize, rewrite, or infer a value, even when it seems obvious.
 - Keep unsupported facts unknown by omitting their claims.
 
 ## Prohibited decisions
@@ -614,10 +617,13 @@ function readStructuredClaims(
   }
   if (
     message === null ||
-    !hasOnlyKeys(message, ["type", "id", "role", "status", "content"]) ||
+    !hasOnlyKeys(message, ["type", "id", "role", "status", "content", "phase"]) ||
     message.type !== "message" ||
     (message.id !== undefined && typeof message.id !== "string") ||
     message.role !== "assistant" ||
+    (message.phase !== undefined &&
+      message.phase !== null &&
+      message.phase !== "final_answer") ||
     message.status !== "completed" ||
     !Array.isArray(message.content) ||
     message.content.length !== 1
@@ -711,6 +717,8 @@ function responseRequestBody(evidenceText: string) {
           properties: {
             claims: {
               type: "array",
+              description:
+                "Only verbatim claims directly copied from the supplied evidence. Omit unsupported fields.",
               items: {
                 type: "object",
                 additionalProperties: false,
@@ -720,8 +728,16 @@ function responseRequestBody(evidenceText: string) {
                     type: "string",
                     enum: FOUNDER_PROFILE_FIELDS,
                   },
-                  value: { type: "string" },
-                  evidenceExcerpt: { type: "string" },
+                  value: {
+                    type: "string",
+                    description:
+                      "An exact contiguous substring copied verbatim from evidenceExcerpt. Never paraphrase or infer.",
+                  },
+                  evidenceExcerpt: {
+                    type: "string",
+                    description:
+                      "An exact contiguous substring copied verbatim from the supplied evidence that contains value.",
+                  },
                 },
               },
             },

@@ -486,6 +486,11 @@ test("incomplete, failed, refused, and ambiguous Responses outputs apply no clai
     {
       status: "completed",
       incomplete_details: null,
+      output: [{ ...completedMessage, phase: "commentary" }],
+    },
+    {
+      status: "completed",
+      incomplete_details: null,
       output: [{ ...completedMessage, status: "incomplete" }],
     },
     {
@@ -531,41 +536,44 @@ test("incomplete, failed, refused, and ambiguous Responses outputs apply no clai
   }
 });
 
-test("completed Responses may contain only inert reasoning plus one assistant output_text", async () => {
-  const result = await extractFounderEvidence(input(), {
-    apiKey: "test-only-key",
-    fetcher: async () => new Response(JSON.stringify({
-      status: "completed",
-      error: null,
-      incomplete_details: null,
-      output: [
-        {
-          type: "reasoning",
-          id: "rs_synthetic",
-          status: "completed",
-          summary: [{ type: "summary_text", text: "Synthetic inert summary." }],
-        },
-        {
-          type: "message",
-          role: "assistant",
-          status: "completed",
-          content: [{
-            type: "output_text",
-            text: JSON.stringify({
-              claims: [{
-                field: "companyName",
-                value: "Acme Water Labs",
-                evidenceExcerpt: "Acme Water Labs builds municipal water sensors",
-              }],
-            }),
-          }],
-        },
-      ],
-    })),
-  });
+test("completed Responses accept only final assistant phase metadata", async () => {
+  for (const phase of [null, "final_answer"] as const) {
+    const result = await extractFounderEvidence(input(), {
+      apiKey: "test-only-key",
+      fetcher: async () => new Response(JSON.stringify({
+        status: "completed",
+        error: null,
+        incomplete_details: null,
+        output: [
+          {
+            type: "reasoning",
+            id: "rs_synthetic",
+            status: "completed",
+            summary: [{ type: "summary_text", text: "Synthetic inert summary." }],
+          },
+          {
+            type: "message",
+            role: "assistant",
+            phase,
+            status: "completed",
+            content: [{
+              type: "output_text",
+              text: JSON.stringify({
+                claims: [{
+                  field: "companyName",
+                  value: "Acme Water Labs",
+                  evidenceExcerpt: "Acme Water Labs builds municipal water sensors",
+                }],
+              }),
+            }],
+          },
+        ],
+      })),
+    });
 
-  assert.equal(result.externalProcessing.completed, true);
-  assert.equal(result.proposedProfile.companyName, "Acme Water Labs");
+    assert.equal(result.externalProcessing.completed, true);
+    assert.equal(result.proposedProfile.companyName, "Acme Water Labs");
+  }
 });
 
 test("duplicate JSON object keys reject the entire extraction", async () => {
@@ -690,6 +698,8 @@ test("successful extraction uses the approved Responses API contract", async () 
   assert.match(String(requestBody.instructions), /never (?:repeat|output) secret-like values/i);
   assert.match(String(requestBody.instructions), /no tools, actions/i);
   assert.match(String(requestBody.instructions), /exact supporting excerpt/i);
+  assert.match(String(requestBody.instructions), /exact contiguous substring/i);
+  assert.match(String(requestBody.instructions), /never summarize, normalize, categorize, rewrite, or infer/i);
   assert.match(String(requestBody.instructions), /unsupported facts unknown/i);
   for (const field of [
     "companyName",
