@@ -1,9 +1,9 @@
 import type { FounderContact } from "../application-workspace";
-import type { WorkspaceState } from "../workspace-state";
+import type { WorkspaceStateV3 } from "../workspace-state";
 
 export interface PersistedWorkspaceDocument {
   version: 1;
-  workspace: WorkspaceState;
+  workspace: WorkspaceStateV3;
   founderContact: FounderContact;
   updatedAt: string;
 }

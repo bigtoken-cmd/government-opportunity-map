@@ -4,8 +4,23 @@ export const EDITABLE_EVIDENCE_PROFILE_FIELDS = [
   "industry",
   "technology",
   "location",
+  "yearFounded",
+  "employees",
+  "revenue",
+  "capitalRaised",
+  "capitalNeed",
+  "useOfFunds",
   "customers",
   "researchActivities",
+  "applicantType",
+  "legalEntityType",
+  "ownership",
+  "productStage",
+  "researchStage",
+  "smallBusinessStatus",
+  "usEntityStatus",
+  "samStatus",
+  "uei",
 ] as const;
 
 export type EditableEvidenceProfileField =

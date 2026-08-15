@@ -88,8 +88,11 @@ test("cached search returns role-separated records and source warnings", async (
   );
   assert.deepEqual(
     sortedKeys(body.discovery),
-    ["historicalAwards", "programs", "recommendations"],
+    ["historicalAwards", "programs", "recommendations", "resultMeta"],
   );
+  assert.equal(body.discovery.resultMeta.defaultVisible, 5);
+  assert.equal(body.discovery.resultMeta.resultCap, 20);
+  assert.equal(body.discovery.resultMeta.returnedCount, body.discovery.recommendations.length);
   assert.equal(body.sources.length, 4);
   assert.deepEqual(
     body.sources.map((source: { family: string }) => source.family),
@@ -116,8 +119,15 @@ test("cached search returns role-separated records and source warnings", async (
   for (const recommendation of body.discovery.recommendations) {
     assert.deepEqual(
       sortedKeys(recommendation),
-      ["match", "opportunity"],
+      ["intelligence", "match", "opportunity"],
     );
+    assert.deepEqual(
+      sortedKeys(recommendation.intelligence),
+      ["concerns", "decisionSummary", "historicalSupport", "nextAction", "routeType", "whyFit"],
+    );
+    assert.ok(["direct", "partner", "verify", "watch"].includes(recommendation.intelligence.routeType));
+    assert.ok(recommendation.intelligence.decisionSummary);
+    assert.ok(recommendation.intelligence.nextAction.text);
     assert.deepEqual(
       sortedKeys(recommendation.match),
       [
@@ -128,7 +138,9 @@ test("cached search returns role-separated records and source warnings", async (
         "matchedConceptGroups",
         "opportunityId",
         "reason",
+        "scopeExactTermMatch",
         "score",
+        "titleDomainMatch",
         "unknownCriticalFacts",
       ],
     );

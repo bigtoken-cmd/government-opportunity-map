@@ -1,0 +1,116 @@
+import type { GovernmentSourceSearchResult } from "../../src/lib/opportunity-search";
+
+/**
+ * Fictional, test-only response for UI contract work.
+ * It is deliberately unrelated to verifier profiles and must not be imported by production code.
+ */
+export const opportunitySearchResponseV2Fixture = {
+  query: {
+    keyword: "resilient infrastructure",
+    assistanceListing: "00.000",
+  },
+  sources: [{
+    family: "grants",
+    name: "Test-only official-source fixture",
+    status: "cached",
+    recordCount: 1,
+    warning: "Fixture data only.",
+    sourceUrl: "https://example.gov/api/opportunities",
+    retrievedAt: "2026-08-15T12:00:00.000Z",
+  }],
+  discovery: {
+    recommendations: [{
+      opportunity: {
+        id: "fixture-opportunity-1",
+        title: "Resilient Infrastructure Pilot",
+        opportunityNumber: "FIXTURE-2026-001",
+        recordKind: "opportunity",
+        source: {
+          sourceId: "fixture-source-1",
+          sourceName: "Test-only official-source fixture",
+          sourceUrl: "https://example.gov/opportunities/fixture-1",
+          retrievedAt: "2026-08-15T12:00:00.000Z",
+          factState: "current",
+          snapshotStatus: "cached_official_snapshot",
+          note: "Fictional fixture data.",
+        },
+        agency: "Fixture Agency",
+        opportunityStatus: "open",
+        deadline: "2026-12-01",
+        amount: { min: 100_000, max: 250_000, currency: "USD" },
+        assistanceListings: ["00.000"],
+        costShare: false,
+        missionAreas: ["infrastructure resilience"],
+        exactTerms: ["resilient infrastructure"],
+        controlledConcepts: ["infrastructure resilience"],
+        technologyAndRd: [],
+        customerUses: ["public agencies"],
+        geographies: ["United States"],
+        eligibility: {
+          applicantTypes: ["small business"],
+          samRegistration: true,
+          uei: true,
+        },
+      },
+      match: {
+        companyId: "fixture-company",
+        opportunityId: "fixture-opportunity-1",
+        fitStatus: "Potential Fit",
+        decision: "Verify first",
+        score: {
+          mission: 25,
+          exactTerms: 20,
+          controlledConcepts: 15,
+          technologyAndRd: 0,
+          customerUse: 10,
+          amount: 10,
+          geography: 5,
+          total: 85,
+        },
+        eligibility: [{
+          field: "SAM registration",
+          state: "unknown",
+          detail: "SAM registration is not verified",
+        }],
+        matchedConceptGroups: ["mission", "exact terms", "controlled concepts", "customer/use"],
+        unknownCriticalFacts: ["SAM registration"],
+        reason: "Critical facts need verification: SAM registration.",
+      },
+      intelligence: {
+        routeType: "verify",
+        decisionSummary: "The project fits, but SAM registration must be verified before pursuing it.",
+        whyFit: [{
+          companyFact: "Confirmed company evidence includes resilient infrastructure.",
+          companyEvidenceId: "company-exact-term-resilient-infrastructure",
+          opportunityFact: "The official notice includes resilient infrastructure.",
+          opportunityEvidenceId: "notice-fixture-source-1-exact-term-resilient-infrastructure",
+          sourceUrl: "https://example.gov/opportunities/fixture-1",
+        }],
+        concerns: [{
+          severity: "verify",
+          text: "SAM registration is not verified",
+          evidenceId: "notice-fixture-source-1-sam-registration",
+          sourceUrl: "https://example.gov/opportunities/fixture-1",
+        }],
+        nextAction: {
+          type: "verify",
+          text: "Verify SAM registration before the deadline.",
+        },
+        historicalSupport: {
+          awards: [],
+          limitation: "No matching historical award was returned by this bounded search.",
+        },
+      },
+    }],
+    programs: [],
+    historicalAwards: [],
+    resultMeta: {
+      qualifyingCount: 1,
+      returnedCount: 1,
+      defaultVisible: 5,
+      resultCap: 20,
+      truncated: false,
+    },
+  },
+  warnings: [],
+} satisfies GovernmentSourceSearchResult;

@@ -3,7 +3,11 @@ import {
   parseFounderContact,
   type FounderContact,
 } from "../application-workspace";
-import type { WorkspaceState } from "../workspace-state";
+import type {
+  ActiveSavedOpportunityState,
+  WorkspaceState,
+  WorkspaceStateV3,
+} from "../workspace-state";
 import type {
   PersistedWorkspaceDocument,
   StoredWorkspaceRecord,
@@ -50,11 +54,11 @@ function equalHash(left: string, right: string) {
   return difference === 0;
 }
 
-export function parseWorkspaceState(value: unknown): WorkspaceState | null {
-  if (!value || typeof value !== "object") return null;
+export function parseWorkspaceState(value: unknown): WorkspaceStateV3 | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const workspace = value as Record<string, unknown>;
   if (
-    workspace.version !== 2
+    (workspace.version !== 2 && workspace.version !== 3)
     || typeof workspace.selectedOpportunityId !== "string"
     || (
       workspace.selectedOpportunityId.length > 0
@@ -67,11 +71,9 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
     return null;
   }
 
-  const opportunityEntries = Object.entries(
-    workspace.checklistByOpportunity,
-  );
+  const opportunityEntries = Object.entries(workspace.checklistByOpportunity);
   if (opportunityEntries.length > MAX_OPPORTUNITIES) return null;
-  const checklistByOpportunity = Object.create(null) as WorkspaceState[
+  const checklistByOpportunity = Object.create(null) as WorkspaceStateV3[
     "checklistByOpportunity"
   ];
   for (const [opportunityId, checklistValue] of opportunityEntries) {
@@ -85,17 +87,67 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
     }
     const checklistEntries = Object.entries(checklistValue);
     if (checklistEntries.length > MAX_CHECKLIST_ITEMS) return null;
-    const checklist = Object.create(null) as Record<string, boolean>;
+    const parsedChecklist = Object.create(null) as Record<string, boolean>;
     for (const [itemId, completed] of checklistEntries) {
       if (!safeRecordKey(itemId) || typeof completed !== "boolean") return null;
-      checklist[itemId] = completed;
+      parsedChecklist[itemId] = completed;
     }
-    checklistByOpportunity[opportunityId] = checklist;
+    checklistByOpportunity[opportunityId] = parsedChecklist;
+  }
+
+  if (workspace.version === 2) {
+    return {
+      version: 3,
+      selectedOpportunityId: workspace.selectedOpportunityId,
+      savedOpportunityIds: [],
+      savedOpportunityStateByOpportunityId: {},
+      checklistByOpportunity,
+    };
+  }
+  if (!Array.isArray(workspace.savedOpportunityIds)) return null;
+  const savedOpportunityIds: string[] = [];
+  const savedIdSet = new Set<string>();
+  for (const id of workspace.savedOpportunityIds) {
+    if (
+      typeof id !== "string"
+      || !safeRecordKey(id)
+      || savedIdSet.has(id)
+      || savedOpportunityIds.length >= MAX_OPPORTUNITIES
+    ) {
+      return null;
+    }
+    savedIdSet.add(id);
+    savedOpportunityIds.push(id);
+  }
+  if (
+    !workspace.savedOpportunityStateByOpportunityId
+    || typeof workspace.savedOpportunityStateByOpportunityId !== "object"
+    || Array.isArray(workspace.savedOpportunityStateByOpportunityId)
+  ) {
+    return null;
+  }
+  const stateEntries = Object.entries(workspace.savedOpportunityStateByOpportunityId);
+  if (stateEntries.length > MAX_OPPORTUNITIES) return null;
+  const savedOpportunityStateByOpportunityId = Object.create(null) as Record<
+    string,
+    ActiveSavedOpportunityState
+  >;
+  for (const [id, state] of stateEntries) {
+    if (
+      !safeRecordKey(id)
+      || !savedIdSet.has(id)
+      || (state !== "verifying" && state !== "pursuing" && state !== "done")
+    ) {
+      return null;
+    }
+    savedOpportunityStateByOpportunityId[id] = state;
   }
 
   return {
-    version: 2,
+    version: 3,
     selectedOpportunityId: workspace.selectedOpportunityId,
+    savedOpportunityIds,
+    savedOpportunityStateByOpportunityId,
     checklistByOpportunity,
   };
 }

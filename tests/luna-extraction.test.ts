@@ -722,8 +722,8 @@ test("successful extraction uses the approved Responses API contract", async () 
   assert.equal(result.externalProcessing.completed, true);
 });
 
-test("website, manual, and PDF evidence all use Luna when consent and a key are present", async () => {
-  for (const sourceType of ["website", "manual", "pdf"] as const) {
+test("all supported evidence source types use Luna when consent and a key are present", async () => {
+  for (const sourceType of ["website", "manual", "pdf", "docx", "pptx"] as const) {
     let calls = 0;
     const result = await extractFounderEvidence(input({ sourceType }), {
       apiKey: "test-only-key",

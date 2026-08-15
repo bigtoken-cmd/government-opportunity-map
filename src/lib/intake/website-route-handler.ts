@@ -122,6 +122,89 @@ function inferYearFounded(text: string) {
   return match?.[1] ?? "";
 }
 
+export interface WebsiteEvidenceSnapshot {
+  profile: {
+    companyName: string;
+    website: string;
+    description: string;
+    industry: string;
+    technology: string;
+    yearFounded: string;
+  };
+  evidence: Array<{ field: string; value: string; sourceUrl: string }>;
+  retrievedAt: string;
+  sourceUrl: string;
+  evidenceText: string;
+  warning: string;
+}
+
+export async function fetchWebsiteEvidence(
+  rawUrl: string,
+  fetcher: typeof fetch = fetch,
+  now: () => Date = () => new Date(),
+): Promise<WebsiteEvidenceSnapshot> {
+  const requestedUrl = validatePublicHttps(rawUrl.trim());
+  const response = await fetcher(requestedUrl, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "User-Agent": "OpportunityMap/0.1 founder-profile-intake",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`The website returned ${response.status}.`);
+  }
+
+  validatePublicHttps(response.url || requestedUrl.toString());
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+    throw new Error("That address did not return a webpage.");
+  }
+
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_HTML_BYTES) {
+    throw new Error("That webpage is too large to review safely.");
+  }
+
+  const html = (await response.text()).slice(0, MAX_HTML_BYTES);
+  const title = cleanText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
+  const description = findMeta(html, ["description", "og:description", "twitter:description"]);
+  const pageText = stripHtml(html).slice(0, 24_000);
+  const companyName =
+    findMeta(html, ["og:site_name", "application-name"]) ||
+    title.split(/\s+[|·—-]\s+/)[0]?.trim() ||
+    requestedUrl.hostname.replace(/^www\./, "");
+  const concepts = inferConcepts(`${description} ${pageText}`);
+  const sourceUrl = response.url || requestedUrl.toString();
+  const profile = {
+    companyName,
+    website: sourceUrl,
+    description: description || pageText.slice(0, 420),
+    industry: concepts[0] ?? "",
+    technology: concepts.join(", "),
+    yearFounded: inferYearFounded(pageText),
+  };
+  const evidence = [
+    ...(companyName
+      ? [{ field: "Company name", value: companyName, sourceUrl }]
+      : []),
+    ...(description
+      ? [{ field: "Company description", value: description, sourceUrl }]
+      : []),
+  ];
+  return {
+    profile,
+    evidence,
+    retrievedAt: now().toISOString(),
+    sourceUrl,
+    evidenceText: pageText,
+    warning:
+      "Website facts are suggestions only. Confirm every field before matching; unsupported facts remain unknown.",
+  };
+}
+
 export function createWebsitePost(
   fetcher: typeof fetch = fetch,
   lunaDependencies: LunaExtractionDependencies = {},
@@ -136,65 +219,12 @@ export function createWebsitePost(
         return NextResponse.json({ error: "Enter a company website." }, { status: 400 });
       }
 
-      const requestedUrl = validatePublicHttps(body.url.trim());
-      const response = await fetcher(requestedUrl, {
-        headers: {
-          Accept: "text/html,application/xhtml+xml",
-          "User-Agent": "OpportunityMap/0.1 founder-profile-intake",
-        },
-        redirect: "follow",
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-
-      if (!response.ok) {
-        throw new Error(`The website returned ${response.status}.`);
-      }
-
-      validatePublicHttps(response.url || requestedUrl.toString());
-      const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
-        throw new Error("That address did not return a webpage.");
-      }
-
-      const declaredLength = Number(response.headers.get("content-length") ?? "0");
-      if (declaredLength > MAX_HTML_BYTES) {
-        throw new Error("That webpage is too large to review safely.");
-      }
-
-      const html = (await response.text()).slice(0, MAX_HTML_BYTES);
-      const title = cleanText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
-      const description = findMeta(html, ["description", "og:description", "twitter:description"]);
-      const pageText = stripHtml(html).slice(0, 24_000);
-      const companyName =
-        findMeta(html, ["og:site_name", "application-name"]) ||
-        title.split(/\s+[|·—-]\s+/)[0]?.trim() ||
-        requestedUrl.hostname.replace(/^www\./, "");
-      const concepts = inferConcepts(`${description} ${pageText}`);
-      const retrievedAt = new Date().toISOString();
-      const sourceUrl = response.url || requestedUrl.toString();
-      const profile = {
-        companyName,
-        website: sourceUrl,
-        description: description || pageText.slice(0, 420),
-        industry: concepts[0] ?? "",
-        technology: concepts.join(", "),
-        yearFounded: inferYearFounded(pageText),
-      };
-      const evidence = [
-          ...(companyName
-            ? [{ field: "Company name", value: companyName, sourceUrl }]
-            : []),
-          ...(description
-            ? [{ field: "Company description", value: description, sourceUrl }]
-            : []),
-        ];
-      const baseResult = {
-        profile,
-        evidence,
-        retrievedAt,
-        warning:
-          "Website facts are suggestions only. Confirm every field before matching; ownership, applicant type, registrations, and financial facts were not inferred.",
-      };
+      const snapshot = await fetchWebsiteEvidence(body.url, fetcher);
+      const {
+        evidenceText,
+        sourceUrl,
+        ...baseResult
+      } = snapshot;
 
       if (body.externalProcessingConsent !== true) {
         return NextResponse.json(baseResult);
@@ -202,7 +232,7 @@ export function createWebsitePost(
 
       const extraction = await extractFounderEvidence({
         sourceType: "website",
-        evidenceText: pageText,
+        evidenceText,
         sourceUrl,
         externalProcessingConsent: true,
       }, lunaDependencies);
@@ -211,15 +241,15 @@ export function createWebsitePost(
       return NextResponse.json({
         ...baseResult,
         profile: {
-          ...profile,
-          companyName: proposed.companyName || profile.companyName,
-          description: proposed.description || profile.description,
-          industry: proposed.industry || profile.industry,
-          technology: proposed.technology || profile.technology,
-          yearFounded: proposed.yearFounded || profile.yearFounded,
+          ...baseResult.profile,
+          companyName: proposed.companyName || baseResult.profile.companyName,
+          description: proposed.description || baseResult.profile.description,
+          industry: proposed.industry || baseResult.profile.industry,
+          technology: proposed.technology || baseResult.profile.technology,
+          yearFounded: proposed.yearFounded || baseResult.profile.yearFounded,
         },
         evidence: [
-          ...evidence,
+          ...baseResult.evidence,
           ...extraction.evidence
             .filter(({ field }) =>
               field === "companyName" ||

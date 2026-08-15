@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeConcepts } from "../src/lib/concept-normalization";
 import { matchOpportunity, rankOpportunities } from "../src/lib/opportunity-matching";
 import type { CompanyProfile, Opportunity } from "../src/lib/opportunity-types";
 
@@ -78,6 +79,50 @@ test("exact terms and controlled synonyms receive separate score evidence", () =
   );
   assert.ok(exact.score.exactTerms > synonymOnly.score.exactTerms);
   assert.equal(synonymOnly.score.controlledConcepts, 15);
+});
+
+test("municipal watersheds do not synthesize the exact municipal-water term", () => {
+  const concepts = normalizeConcepts("wildfire impacts on municipal watersheds");
+  assert.equal(concepts.exactTerms.includes("municipal water"), false);
+  assert.equal(concepts.missionAreas.includes("water resilience"), false);
+});
+
+test("generic research and commercialization overlap cannot pad unrelated titles", () => {
+  const result = matchOpportunity(
+    {
+      ...company,
+      missionAreas: ["water resilience", "technology commercialization"],
+      controlledConcepts: ["water efficiency", "technical innovation", "commercialization"],
+      technologyAndRd: ["sensor R&D", "research and development"],
+      customerUses: ["commercialization"],
+      samRegistration: "yes",
+    },
+    opportunity({
+      title: "Increasing Market Opportunities for Biofertilizer Exporters",
+      missionAreas: ["technology commercialization"],
+      exactTerms: [],
+      controlledConcepts: ["technical innovation", "commercialization"],
+      technologyAndRd: ["research and development"],
+      customerUses: ["commercialization"],
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.fitStatus, "No Fit");
+  assert.equal(result.decision, "Skip");
+});
+
+test("an exact synopsis term can rescue a valid opportunity with a generic title", () => {
+  const result = matchOpportunity(
+    { ...company, samRegistration: "yes" },
+    opportunity({
+      title: "Technical Assistance Challenge",
+      eligibility: { applicantTypes: ["small business"] },
+    }),
+  );
+  assert.equal(result.titleDomainMatch, false);
+  assert.equal(result.scopeExactTermMatch, true);
+  assert.notEqual(result.decision, "Skip");
 });
 
 test("deadline breaks ties without changing fit score", () => {

@@ -9,8 +9,22 @@ const FOUNDER_PROFILE_FIELDS = [
   "technology",
   "location",
   "yearFounded",
+  "employees",
+  "revenue",
+  "capitalRaised",
+  "capitalNeed",
+  "useOfFunds",
   "customers",
   "researchActivities",
+  "applicantType",
+  "legalEntityType",
+  "ownership",
+  "productStage",
+  "researchStage",
+  "smallBusinessStatus",
+  "usEntityStatus",
+  "samStatus",
+  "uei",
 ] as const;
 
 const REDACTED_CREDENTIAL = "[REDACTED_CREDENTIAL]";
@@ -33,7 +47,7 @@ const EXTRACTION_POLICY = `# Founder Evidence Extraction Policy
 ## Prohibited decisions
 - Do not infer or decide government facts, eligibility, scores, deadlines, award amounts, totals, provenance, recommendations, or application decisions.`;
 
-export type FounderEvidenceSourceType = "website" | "manual" | "pdf";
+export type FounderEvidenceSourceType = "website" | "manual" | "pdf" | "docx" | "pptx";
 export type FounderProfileProposalField = (typeof FOUNDER_PROFILE_FIELDS)[number];
 export type ExternalProcessingReason =
   | "consent_required"
@@ -104,8 +118,22 @@ function blankProfile(): Record<FounderProfileProposalField, string> {
     technology: "",
     location: "",
     yearFounded: "",
+    employees: "",
+    revenue: "",
+    capitalRaised: "",
+    capitalNeed: "",
+    useOfFunds: "",
     customers: "",
     researchActivities: "",
+    applicantType: "",
+    legalEntityType: "",
+    ownership: "",
+    productStage: "",
+    researchStage: "",
+    smallBusinessStatus: "",
+    usEntityStatus: "",
+    samStatus: "",
+    uei: "",
   };
 }
 

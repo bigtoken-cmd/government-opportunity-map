@@ -75,23 +75,45 @@ export function normalizeConcepts(value: string): NormalizedConcepts {
     add(result.controlledConcepts, "manufacturing innovation");
   }
 
-  const hasWater = hasAny(text, [
-    "municipal water",
+  const hasMunicipalWater = /\bmunicipal water\b/.test(text);
+  const hasWater = hasMunicipalWater || hasAny(text, [
     "water loss",
     "water sensor",
     "water infrastructure",
     "water reclamation",
     "water efficiency",
+    "desalination",
+    "water purification",
+    "water resources",
   ]);
   if (hasWater) {
     add(result.missionAreas, "water resilience");
     add(result.missionAreas, "municipal infrastructure");
+  }
+  if (hasAny(text, ["water sensor", "water monitoring", "sensor platform"])) {
     add(result.technologyAndRd, "sensor R&D");
+  }
+  if (hasAny(text, ["water analytics", "water data analytics"])) {
     add(result.technologyAndRd, "water analytics");
+  }
+  if (hasMunicipalWater || hasAny(text, [
+    "municipal utilities",
+    "water utilities",
+    "water districts",
+    "wastewater districts",
+  ])) {
     add(result.customerUses, "municipal utilities");
   }
-  if (text.includes("municipal water")) add(result.exactTerms, "municipal water");
-  if (hasAny(text, ["water loss", "water sensor", "water reclamation", "water efficiency"])) {
+  if (hasMunicipalWater) add(result.exactTerms, "municipal water");
+  if (hasAny(text, [
+    "water loss",
+    "water sensor",
+    "water reclamation",
+    "water efficiency",
+    "desalination",
+    "water purification",
+    "water resources",
+  ])) {
     add(result.controlledConcepts, "water efficiency");
   }
   if (text.includes("water infrastructure")) {

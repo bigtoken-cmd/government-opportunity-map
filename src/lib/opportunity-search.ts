@@ -1,5 +1,6 @@
 import {
   discoverOpportunities,
+  selectOpportunityCandidates,
   type OpportunityDiscovery,
   type OpportunityRanker,
 } from "./opportunity-discovery";
@@ -7,7 +8,7 @@ import { rankOpportunities } from "./opportunity-matching";
 import type { CompanyProfile } from "./opportunity-types";
 import { searchAssistanceListings } from "./sources/assistance-listings";
 import type { AssistanceListingsStore } from "./sources/assistance-listings-store";
-import { searchGrants } from "./sources/grants";
+import { enrichGrantRecords, searchGrants } from "./sources/grants";
 import { searchSbirAwards } from "./sources/sbir";
 import type { SbirAwardsStore } from "./sources/sbir-store";
 import type {
@@ -44,6 +45,7 @@ export interface GovernmentSourceSearchResult {
 export interface GovernmentSourceSearchOptions {
   mode?: SourceMode;
   fetcher?: typeof fetch;
+  grantsDetailFetcher?: typeof fetch;
   now?: () => Date;
   assistanceListingsStore?: AssistanceListingsStore;
   sbirAwardsStore?: SbirAwardsStore;
@@ -167,11 +169,38 @@ export async function searchGovernmentSources(
     fetcher: options.fetcher,
     now: options.now,
   };
-  const grants = combineGrantsResults(await Promise.all(
+  let grants = combineGrantsResults(await Promise.all(
     (searchQueries.length ? searchQueries : [{ term: "", family: "exact" as const }])
       .map((query) => searchGrants({ keyword: query.term }, adapterOptions)),
   ));
   const ranker = options.ranker ?? rankOpportunities;
+  const detailFetcher = options.grantsDetailFetcher ?? options.fetcher ?? fetch;
+  const detailModeEnabled = options.mode !== "cached" && options.mode !== "failure";
+  if (detailModeEnabled && grants.records.length) {
+    const candidates = selectOpportunityCandidates(
+      company,
+      grants.records,
+      ranker,
+      24,
+    );
+    const candidateIds = new Set(candidates.map((record) => record.id));
+    const orderedRecords = [
+      ...candidates,
+      ...grants.records.filter((record) => !candidateIds.has(record.id)),
+    ];
+    const enrichment = await enrichGrantRecords(orderedRecords, {
+      fetcher: detailFetcher,
+      now: options.now,
+      maxRecords: candidates.length,
+      concurrency: 12,
+    });
+    const warnings = [grants.warning, enrichment.warning].filter(Boolean);
+    grants = {
+      ...grants,
+      records: enrichment.records,
+      warning: warnings.length ? warnings.join(" ") : null,
+    };
+  }
   const assistanceListing = selectAssistanceListing(
     company,
     grants.records,

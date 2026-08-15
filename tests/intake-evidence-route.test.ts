@@ -93,7 +93,7 @@ test("manual evidence returns only supported profile suggestions and evidence", 
   assert.equal(body.profile.companyName, "Acme Water Labs");
   assert.equal(body.profile.description, evidenceText);
   assert.equal(body.profile.technology, "municipal water sensors");
-  assert.equal("yearFounded" in body.profile, false);
+  assert.equal(body.profile.yearFounded, "2021");
   assert.equal(body.profile.applicantType, "Unknown — founder input needed");
   assert.equal(body.externalProcessing.completed, true);
   assert.equal(body.externalProcessingDisclosure, EXTERNAL_PROCESSING_DISCLOSURE);
@@ -109,6 +109,10 @@ test("manual evidence returns only supported profile suggestions and evidence", 
       },
       {
         field: "technology",
+        sourceUrl: "urn:founder-evidence:manual",
+      },
+      {
+        field: "yearFounded",
         sourceUrl: "urn:founder-evidence:manual",
       },
     ],

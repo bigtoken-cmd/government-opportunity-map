@@ -103,7 +103,7 @@ export function createWorkspaceHandlers(store: WorkspaceStore | null) {
       const founderContact = parseFounderContact(body?.founderContact);
       if (!body || !workspace || !founderContact) {
         return NextResponse.json(
-          { error: "A valid WorkspaceState v2 body is required." },
+          { error: "A valid WorkspaceState v2 or v3 body is required." },
           { status: 400 },
         );
       }
