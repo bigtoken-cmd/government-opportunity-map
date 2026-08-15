@@ -1,65 +1,120 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
-import { CALIBRATION_QUERY_LOG, type CalibrationJudgment } from "./fixtures/calibration-query-log";
+import {
+  ADVERSARIAL_HOLDOUTS,
+  OFFICIAL_PROFILE_FIXTURES,
+} from "./fixtures/official-profile-fixtures";
+import {
+  CALIBRATION_QUERY_LOG,
+  type CalibrationQuery,
+} from "./fixtures/calibration-query-log";
+import {
+  normalizeFounderProfile,
+  type FounderProfileInput,
+} from "../src/lib/intake/profile-normalization";
+import {
+  searchGovernmentSources,
+  type GovernmentSourceSearchResult,
+} from "../src/lib/opportunity-search";
+import type { Opportunity } from "../src/lib/opportunity-types";
 
-type Distribution = {
-  name: string;
-  direct: number;
-  synonym: number;
-  broadMission: number;
-};
-
-const DISTRIBUTIONS: readonly Distribution[] = [
-  { name: "current", direct: 20, synonym: 15, broadMission: 25 },
-  { name: "synonym-forward", direct: 15, synonym: 20, broadMission: 25 },
-  { name: "direct-forward", direct: 25, synonym: 15, broadMission: 20 },
-];
-
-function score(judgment: CalibrationJudgment, distribution: Distribution) {
-  return judgment.direct * distribution.direct
-    + judgment.synonym * distribution.synonym
-    + judgment.broadMission * distribution.broadMission;
+const PROFILE_BY_KEY = new Map<string, FounderProfileInput>();
+for (const fixture of OFFICIAL_PROFILE_FIXTURES) {
+  PROFILE_BY_KEY.set(fixture.key, fixture.profile);
+}
+for (const profile of ADVERSARIAL_HOLDOUTS) {
+  PROFILE_BY_KEY.set(profile.id, profile);
 }
 
-function metrics(distribution: Distribution) {
-  const positiveCalibration = CALIBRATION_QUERY_LOG.filter(
-    (query) => query.split === "calibration" && query.judgments.some((judgment) => judgment.relevant),
-  );
-  const positiveHoldout = CALIBRATION_QUERY_LOG.filter(
-    (query) => query.split === "locked-holdout" && query.judgments.some((judgment) => judgment.relevant),
-  );
-  const negativeQueries = CALIBRATION_QUERY_LOG.filter(
-    (query) => !query.judgments.some((judgment) => judgment.relevant),
-  );
-  const ranked = (query: typeof CALIBRATION_QUERY_LOG[number]) =>
-    [...query.judgments].sort((left, right) => score(right, distribution) - score(left, distribution));
-  const recallAt20 = (queries: typeof CALIBRATION_QUERY_LOG) =>
-    queries.filter((query) => query.judgments.some((judgment) => judgment.relevant))
-      .filter((query) => ranked(query).slice(0, 20).some((judgment) => judgment.relevant)).length
-      / queries.filter((query) => query.judgments.some((judgment) => judgment.relevant)).length;
-  const weightedPrecisionAt10 = (queries: typeof CALIBRATION_QUERY_LOG) => {
-    const top = queries.flatMap((query) => ranked(query).slice(0, 10));
-    return top.length
-      ? top.reduce((total, judgment) => total + (judgment.relevant ? 2 : 0), 0) / (top.length * 2)
-      : 0;
+function canonicalProvenanceHash(opportunity: Opportunity) {
+  const canonicalRecord = {
+    id: opportunity.id,
+    opportunityNumber: opportunity.opportunityNumber ?? "",
+    title: opportunity.title,
+    agency: opportunity.agency,
+    opportunityStatus: opportunity.opportunityStatus,
+    deadline: opportunity.deadline ?? "",
+    sourceId: opportunity.source.sourceId,
+    sourceUrl: opportunity.source.sourceUrl,
+    retrievedAt: opportunity.source.retrievedAt,
   };
-  const positiveScores = [...positiveCalibration, ...positiveHoldout]
-    .map((query) => Math.max(...ranked(query).map((judgment) => score(judgment, distribution))));
-  const negativeScores = negativeQueries.map((query) =>
-    Math.max(...ranked(query).map((judgment) => score(judgment, distribution))));
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalRecord))
+    .digest("hex");
+}
 
-  return {
-    recallAt20: recallAt20(positiveCalibration),
-    weightedPrecisionAt10: weightedPrecisionAt10(positiveCalibration),
-    perProfileFloor: Math.min(...positiveScores.map((value) => value > 0 ? 1 : 0)),
-    positiveNegativeSeparation: Math.min(...positiveScores) - Math.max(...negativeScores),
-    lockedPositiveRecallAt20: recallAt20(positiveHoldout),
-    lockedNegativeActionable: negativeQueries
-      .filter((query) => query.split === "locked-holdout")
-      .filter((query) => ranked(query).slice(0, 20).some((judgment) => judgment.actionable)).length,
-    actionableNegatives: negativeQueries
-      .filter((query) => ranked(query).slice(0, 20).some((judgment) => judgment.actionable)).length,
-  };
+function assertJudgedRecommendationProvenance(
+  query: CalibrationQuery,
+  result: GovernmentSourceSearchResult,
+) {
+  const judgmentByOpportunityId = new Map(
+    query.judgments.map((judgment) => [judgment.opportunityId, judgment]),
+  );
+  for (const recommendation of result.discovery.recommendations) {
+    const judgment = judgmentByOpportunityId.get(recommendation.opportunity.id);
+    if (judgment) {
+      assert.equal(
+        recommendation.opportunity.source.sourceId,
+        judgment.sourceId,
+        `${judgment.opportunityId} must retain its official source ID`,
+      );
+      assert.equal(
+        recommendation.opportunity.source.sourceUrl,
+        judgment.sourceUrl,
+        `${judgment.opportunityId} must retain its official source URL`,
+      );
+      assert.equal(
+        recommendation.opportunity.source.retrievedAt,
+        judgment.retrievedAt,
+        `${judgment.opportunityId} must retain its official retrieval timestamp`,
+      );
+      assert.equal(
+        canonicalProvenanceHash(recommendation.opportunity),
+        judgment.provenanceHash,
+        `${judgment.opportunityId} canonical provenance hash changed`,
+      );
+    }
+  }
+}
+
+async function runCachedPipeline(
+  query: CalibrationQuery,
+): Promise<GovernmentSourceSearchResult> {
+  const profile = PROFILE_BY_KEY.get(query.profileKey);
+  assert.ok(profile, `Missing profile fixture for ${query.profileKey}`);
+  const result = await searchGovernmentSources(
+    normalizeFounderProfile(profile),
+    { mode: "cached" },
+  );
+  assert.equal(
+    result.query.keyword,
+    query.query,
+    `${query.profileKey} must use its frozen query through the production pipeline`,
+  );
+  assertJudgedRecommendationProvenance(query, result);
+  return result;
+}
+
+function relevantOpportunityIds(query: CalibrationQuery) {
+  return new Set(
+    query.judgments
+      .filter((judgment) => judgment.relevant)
+      .map((judgment) => judgment.opportunityId),
+  );
+}
+
+function recommendationLabels(
+  query: CalibrationQuery,
+  result: GovernmentSourceSearchResult,
+) {
+  const judgmentByOpportunityId = new Map(
+    query.judgments.map((judgment) => [judgment.opportunityId, judgment]),
+  );
+  return result.discovery.recommendations.slice(0, 10).map((recommendation) => ({
+    opportunityId: recommendation.opportunity.id,
+    judgment: judgmentByOpportunityId.get(recommendation.opportunity.id),
+  }));
 }
 
 test("frozen calibration artifact has provenance, explicit splits, and eight profiles", () => {
@@ -67,7 +122,9 @@ test("frozen calibration artifact has provenance, explicit splits, and eight pro
   assert.equal(CALIBRATION_QUERY_LOG.filter((query) => query.split === "locked-holdout").length, 2);
   for (const query of CALIBRATION_QUERY_LOG) {
     for (const judgment of query.judgments) {
-      assert.match(judgment.sourceId, /^grants-/);
+      assert.match(judgment.opportunityId, /^grants-\d+$/);
+      assert.match(judgment.sourceId, /^\d+$/);
+      assert.equal(judgment.opportunityId, `grants-${judgment.sourceId}`);
       assert.match(judgment.sourceUrl, /^https:\/\/www\.grants\.gov\//);
       assert.equal(judgment.retrievedAt, "2026-08-14T00:00:00.000Z");
       assert.match(judgment.provenanceHash, /^[a-f0-9]{64}$/);
@@ -75,49 +132,90 @@ test("frozen calibration artifact has provenance, explicit splits, and eight pro
   }
 });
 
-test("calibration compares only predefined distributions and protects the locked holdout", () => {
-  const results = DISTRIBUTIONS.map((distribution) => ({
-    distribution: distribution.name,
-    metrics: metrics(distribution),
-  }));
-  console.log("calibration", JSON.stringify(results));
-
-  for (const result of results) {
-    assert.equal(result.metrics.recallAt20, 1);
-    assert.equal(result.metrics.weightedPrecisionAt10, 0.5);
-    assert.equal(result.metrics.perProfileFloor, 1);
-    assert.ok(result.metrics.positiveNegativeSeparation > 0);
-    assert.equal(result.metrics.lockedPositiveRecallAt20, 1);
-    assert.equal(result.metrics.lockedNegativeActionable, 0);
-    assert.equal(result.metrics.actionableNegatives, 0);
-  }
-  assert.deepEqual(
-    results.map((result) => result.metrics),
-    results.map((result) => result.metrics),
+test("cached production recommendations meet calibration recall and precision gates", async () => {
+  const positiveCalibration = CALIBRATION_QUERY_LOG.filter(
+    (query) => query.split === "calibration"
+      && query.judgments.some((judgment) => judgment.relevant),
   );
-  assert.equal(
-    results.reduce((best, result) =>
-      result.metrics.weightedPrecisionAt10 > best.metrics.weightedPrecisionAt10 ? result : best,
-    ).distribution,
-    "current",
+  assert.equal(positiveCalibration.length, 3);
+
+  const observations = await Promise.all(
+    positiveCalibration.map(async (query) => ({
+      query,
+      result: await runCachedPipeline(query),
+    })),
+  );
+  for (const { query, result } of observations) {
+    const returnedOpportunityIds = new Set(
+      result.discovery.recommendations.map(
+        (recommendation) => recommendation.opportunity.id,
+      ),
+    );
+    assert.ok(
+      [...relevantOpportunityIds(query)].some((opportunityId) =>
+        returnedOpportunityIds.has(opportunityId)),
+      `${query.profileKey} did not retrieve a frozen relevant opportunity`,
+    );
+  }
+
+  const returned = observations.flatMap(({ query, result }) =>
+    recommendationLabels(query, result));
+  assert.ok(returned.length > 0);
+  const relevantReturned = returned.filter(
+    ({ judgment }) => judgment?.relevant === true,
+  ).length;
+  const weightedPrecisionAt10 = relevantReturned / returned.length;
+  console.log("cached calibration", JSON.stringify({
+    profiles: positiveCalibration.length,
+    returnedRecommendations: returned.length,
+    relevantRecommendations: relevantReturned,
+    weightedPrecisionAt10,
+  }));
+  assert.ok(
+    weightedPrecisionAt10 >= 0.60,
+    `weighted precision@10 ${weightedPrecisionAt10.toFixed(2)} is below 0.60`,
   );
 });
 
-test("term-family ablations preserve zero actionable negatives and direct/synonym separation", () => {
-  const current = DISTRIBUTIONS[0];
-  for (const family of ["direct", "synonym", "broadMission"] as const) {
-    const ablated = { ...current, [family]: 0 };
-    const negativeQueries = CALIBRATION_QUERY_LOG.filter(
-      (query) => !query.judgments.some((judgment) => judgment.relevant),
+test("cached production pipeline protects the positive and negative holdouts", async () => {
+  const positiveHoldouts = CALIBRATION_QUERY_LOG.filter(
+    (query) => query.split === "locked-holdout"
+      && query.judgments.some((judgment) => judgment.relevant),
+  );
+  assert.equal(positiveHoldouts.length, 1);
+  for (const query of positiveHoldouts) {
+    const result = await runCachedPipeline(query);
+    const returnedOpportunityIds = new Set(
+      result.discovery.recommendations.map(
+        (recommendation) => recommendation.opportunity.id,
+      ),
     );
-    assert.equal(
-      negativeQueries.filter((query) =>
-        query.judgments.some((judgment) => judgment.actionable && score(judgment, ablated) > 0),
-      ).length,
-      0,
+    assert.ok(
+      [...relevantOpportunityIds(query)].some((opportunityId) =>
+        returnedOpportunityIds.has(opportunityId)),
+      `${query.profileKey} did not retrieve its frozen relevant holdout`,
     );
   }
-  assert.ok(score({ direct: 1, synonym: 0, broadMission: 0 } as CalibrationJudgment, current)
-    > score({ direct: 0, synonym: 1, broadMission: 0 } as CalibrationJudgment, current));
-  assert.notEqual(current.direct, current.synonym);
+
+  const negativeQueries = CALIBRATION_QUERY_LOG.filter(
+    (query) => !query.judgments.some((judgment) => judgment.relevant),
+  );
+  assert.deepEqual(
+    negativeQueries.map((query) => query.profileKey).sort(),
+    [
+      "consumer",
+      "holdout-bookkeeping",
+      "holdout-dog-grooming",
+      "holdout-staffing",
+    ],
+  );
+  for (const query of negativeQueries) {
+    assert.ok(query.judgments.every((judgment) => !judgment.actionable));
+    const result = await runCachedPipeline(query);
+    assert.equal(
+      result.discovery.recommendations.length,
+      0,
+      `${query.profileKey} received an actionable recommendation`,
+    );
+  }
 });

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { searchAssistanceListings } from "../src/lib/sources/assistance-listings";
+import type { AssistanceListingsStore } from "../src/lib/sources/assistance-listings-store";
 import { searchGrants } from "../src/lib/sources/grants";
 import { searchSbirAwards } from "../src/lib/sources/sbir";
+import type { SbirAwardsStore } from "../src/lib/sources/sbir-store";
 import { searchUsaSpending } from "../src/lib/sources/usaspending";
 
 const now = () => new Date("2026-08-14T00:00:00.000Z");
@@ -46,4 +48,30 @@ test("program and SBIR adapters never claim current opportunity roles", async ()
   assert.ok(programs.records.every((record) => record.kind === "program_context"));
   assert.ok(sbir.records.every((record) => record.kind === "historical_award"));
   assert.equal(sbir.status, "cached");
+});
+
+test("snapshot-store failures become honest adapter results instead of rejections", async () => {
+  const assistanceStore = {
+    metadata: async () => {
+      throw new Error("assistance store unavailable");
+    },
+  } as unknown as AssistanceListingsStore;
+  const sbirStore = {
+    metadata: async () => {
+      throw new Error("SBIR store unavailable");
+    },
+  } as unknown as SbirAwardsStore;
+
+  const programs = await searchAssistanceListings(
+    { assistanceListing: "93.310" },
+    { store: assistanceStore, now },
+  );
+  const sbir = await searchSbirAwards("water", { store: sbirStore, now });
+
+  assert.equal(programs.status, "cached-fallback");
+  assert.equal(programs.records[0]?.assistanceListing, "93.310");
+  assert.match(programs.warning ?? "", /snapshot store/i);
+  assert.equal(sbir.status, "unavailable");
+  assert.deepEqual(sbir.records, []);
+  assert.match(sbir.warning ?? "", /snapshot store/i);
 });

@@ -17,16 +17,22 @@ test("the five verifier-only profiles share the public cached source pipeline", 
   assert.equal(results.length, 5);
   assert.ok(results.every((result) => result.sources.length === 4));
   assert.ok(results.every((result) =>
+    result.sources.every((source) =>
+      source.status === "cached" || source.status === "unavailable"),
+  ));
+  assert.ok(results.every((result) =>
     result.discovery.recommendations.length <= 5,
   ));
 });
 
-test("adversarial holdouts do not receive Strong Fit recommendations", async () => {
+test("adversarial holdouts receive no actionable recommendations", async () => {
   assert.equal(ADVERSARIAL_HOLDOUTS.length, 3);
   for (const profile of ADVERSARIAL_HOLDOUTS) {
     const result = await searchGovernmentSources(normalizeFounderProfile(profile), { mode: "cached" });
-    assert.ok(result.discovery.recommendations.every(
-      (recommendation) => recommendation.match.fitStatus !== "Strong Fit",
-    ));
+    assert.equal(
+      result.discovery.recommendations.length,
+      0,
+      `${profile.id} received an actionable recommendation`,
+    );
   }
 });

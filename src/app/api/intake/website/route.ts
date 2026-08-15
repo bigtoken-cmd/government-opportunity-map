@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
+import {
+  extractFounderEvidence,
+  type LunaExtractionDependencies,
+} from "../../../../lib/intake/luna-extraction";
 
 const MAX_HTML_BYTES = 1_000_000;
 const FETCH_TIMEOUT_MS = 7_000;
+const EXTERNAL_PROCESSING_DISCLOSURE =
+  "With your explicit consent, supplied company evidence is sent to OpenAI for profile-field suggestions. It is not stored by this app, and Luna does not decide eligibility, scores, deadlines, award amounts, totals, provenance, or government facts.";
 
 const entityMap: Record<string, string> = {
   amp: "&",
@@ -117,10 +123,16 @@ function inferYearFounded(text: string) {
   return match?.[1] ?? "";
 }
 
-export function createWebsitePost(fetcher: typeof fetch = fetch) {
+export function createWebsitePost(
+  fetcher: typeof fetch = fetch,
+  lunaDependencies: LunaExtractionDependencies = {},
+) {
   return async function POST(request: Request) {
     try {
-      const body = (await request.json()) as { url?: unknown };
+      const body = (await request.json()) as {
+        url?: unknown;
+        externalProcessingConsent?: unknown;
+      };
       if (typeof body.url !== "string" || !body.url.trim()) {
         return NextResponse.json({ error: "Enter a company website." }, { status: 400 });
       }
@@ -160,27 +172,72 @@ export function createWebsitePost(fetcher: typeof fetch = fetch) {
         requestedUrl.hostname.replace(/^www\./, "");
       const concepts = inferConcepts(`${description} ${pageText}`);
       const retrievedAt = new Date().toISOString();
-
-      return NextResponse.json({
-        profile: {
-          companyName,
-          website: response.url || requestedUrl.toString(),
-          description: description || pageText.slice(0, 420),
-          industry: concepts[0] ?? "",
-          technology: concepts.join(", "),
-          yearFounded: inferYearFounded(pageText),
-        },
-        evidence: [
+      const sourceUrl = response.url || requestedUrl.toString();
+      const profile = {
+        companyName,
+        website: sourceUrl,
+        description: description || pageText.slice(0, 420),
+        industry: concepts[0] ?? "",
+        technology: concepts.join(", "),
+        yearFounded: inferYearFounded(pageText),
+      };
+      const evidence = [
           ...(companyName
-            ? [{ field: "Company name", value: companyName, sourceUrl: response.url || requestedUrl.toString() }]
+            ? [{ field: "Company name", value: companyName, sourceUrl }]
             : []),
           ...(description
-            ? [{ field: "Company description", value: description, sourceUrl: response.url || requestedUrl.toString() }]
+            ? [{ field: "Company description", value: description, sourceUrl }]
             : []),
-        ],
+        ];
+      const baseResult = {
+        profile,
+        evidence,
         retrievedAt,
         warning:
           "Website facts are suggestions only. Confirm every field before matching; ownership, applicant type, registrations, and financial facts were not inferred.",
+      };
+
+      if (body.externalProcessingConsent !== true) {
+        return NextResponse.json(baseResult);
+      }
+
+      const extraction = await extractFounderEvidence({
+        sourceType: "website",
+        evidenceText: pageText,
+        sourceUrl,
+        externalProcessingConsent: true,
+      }, lunaDependencies);
+      const proposed = extraction.proposedProfile;
+
+      return NextResponse.json({
+        ...baseResult,
+        profile: {
+          ...profile,
+          companyName: proposed.companyName || profile.companyName,
+          description: proposed.description || profile.description,
+          industry: proposed.industry || profile.industry,
+          technology: proposed.technology || profile.technology,
+          yearFounded: proposed.yearFounded || profile.yearFounded,
+        },
+        evidence: [
+          ...evidence,
+          ...extraction.evidence
+            .filter(({ field }) =>
+              field === "companyName" ||
+              field === "description" ||
+              field === "industry" ||
+              field === "technology" ||
+              field === "yearFounded"
+            )
+            .map((claim) => ({
+              field: claim.field,
+              value: claim.value,
+              evidenceExcerpt: claim.evidenceExcerpt,
+              sourceUrl: claim.sourceUrl,
+            })),
+        ],
+        externalProcessing: extraction.externalProcessing,
+        externalProcessingDisclosure: EXTERNAL_PROCESSING_DISCLOSURE,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "The website could not be reviewed.";

@@ -59,7 +59,6 @@ export async function POST(request: Request) {
     normalizeFounderProfile(input),
     {
       mode: sourceMode(body.mode),
-      gsaApiKey: process.env.GSA_API_KEY,
     },
   );
   return NextResponse.json(result);
