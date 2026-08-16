@@ -1,361 +1,382 @@
 # FundPath Backend Adoption Plan
 
-> **New plan file.** Does not replace `TWO_HOUR_RELEASE_PLAN.md`, `HACKATHON_PLAN.md`, or `AGENTS.md`.  
-> **Status:** Proposal — do not implement until this document is explicitly approved.  
-> **Source reference:** [juanlizarazo/ai-builder-2026-fundpath](https://github.com/juanlizarazo/ai-builder-2026-fundpath) (FundPath, AI Builder Day 2026 winner).  
-> **Target:** Keep our UI + intake + workspace; replace/upgrade the matching brain with FundPath’s deterministic pipeline; run on our existing free-leaning stack with **Luna** instead of Claude.
+> **Baseline:** `post-hackathon-v2` (PR [#9](https://github.com/bigtoken-cmd/government-opportunity-map/pull/9)), not `main` and not the deleted two-hour / hackathon plan files.  
+> **Authority on that branch:** `AGENTS.md` + `src/lib/agents/*` stage instructions.  
+> **Status:** Proposal — do not implement until explicitly approved.  
+> **Source reference:** [juanlizarazo/ai-builder-2026-fundpath](https://github.com/juanlizarazo/ai-builder-2026-fundpath).  
+> **This file does not replace V2.** It proposes the next architecture move *after / alongside* Stage A.
 
 ---
 
 ## 1. Goal (two lines)
 
-**Build:** A founder-facing Government Opportunity Map that keeps our current UI and multi-input intake, but uses FundPath’s backend intelligence pattern — structured profile → corpus retrieval → hard eligibility rules → score/sequence/abstain → Luna explanations only.
+**Build:** Keep post-hackathon V2’s UI, multi-input intake, listing enrichment, and Cloudflare hosting — but upgrade the middle of search with FundPath’s deterministic route brain (eligibility → score → sequence → abstain → stacking), using **Luna** for extract/explain only.
 
-**Constraint:** No new paid subscriptions (no Firebase Blaze, Anthropic, Twilio, Resend). Stay on Cloudflare + D1 + existing `OPENAI_API_KEY` (Luna).
+**Constraint:** No new paid SaaS (no Firebase, Anthropic, Twilio, Resend). Stay on Cloudflare Workers + D1 + existing `OPENAI_API_KEY` (Luna).
 
 ---
 
-## 2. What stays (ours — do not rip out)
+## 2. Current baseline (what V2 already is)
 
-### UI / product surface
-- Single-app walkthrough in `opportunity-workbench.tsx` + `resource-dashboard.tsx` + `product-primitives.tsx`
-- Civic / Thinking Orbs loading UX, stage rail, provenance display
-- Honest search-error vs no-match distinction
-- External-source confirmation dialog
-- Opportunity-scoped checklist + application prefill workspace (no direct gov submission)
+Branch tip: `origin/post-hackathon-v2` @ Stage A.
 
-### Intake (we are ahead of FundPath here)
-- Website URL, manual description, **and** PDF/DOCX/PPTX upload (`/api/intake/bundle`)
-- Founder review screen: show extracted fields, ask only for what is missing / uncertain
-- External processing disclosure (restore/enforce consent gate if still soft)
-- Luna extraction of evidence → profile field claims (`luna-extraction.ts`)
+### Already shipped / in PR #9
+- Old plan files **deleted** (`TWO_HOUR_RELEASE_PLAN.md`, `HACKATHON_PLAN.md`, Jacob handoffs)
+- `AGENTS.md` rewritten around model stage files in `src/lib/agents/`
+- Intake: website **or** file (incl. drag-and-drop) **or** pasted notes
+- Textarea is **evidence**, not the company description dump
+- Luna extraction with claim kinds: `verbatim` / `inferred` / `summarized`
+- Thinking orb on profile build + search
+- Follow-ups = only remaining empty **required** fields (max 7)
+- Search: **rank first**, then enrich only returned cards (Worker 60s budget)
+- Listing scrape: Grants.gov HTML Similar Opportunities + How-to-Apply
+- Deterministic listing-aware prefill rows (editable in workspace)
+- Luna semantic review: **downgrade/remove only**
+- Same safety bar: models never own eligibility, scores, deadlines, historical totals
 
-### Platform
-- Next.js + OpenNext on Cloudflare Workers
-- D1 `WORKSPACE_DB` + local fallback
-- Existing rate limiters
-- Five official verifier fixtures + adversarial holdouts (same pipeline, no hard-coded outputs)
-- Non-negotiable safety rules in `AGENTS.md`
+### V2 roadmap already named (do not invent a parallel product track)
+| Stage | Scope |
+|---|---|
+| **A** (this PR) | Intake + returned-set enrichment + research pass shell |
+| **B** | ALN/SBIR cron stores, show-more/metadata polish, wording pass, water/Title XVI regressions |
+| **C** | Google OAuth |
+| **D** | SAM procurement, attachments, notice tasks, funding roadmap, then email/calendar/settings/help one-at-a-time |
+
+This FundPath adoption plan **slots primarily into the matching/intelligence layer** and into **Stage B corpus work**. It must not reopen deleted hackathon docs or fight Stage A UI.
+
+---
+
+## 3. What we keep from V2 (do not rip out)
+
+### UI
+- `opportunity-workbench.tsx` — intake → review → search → results → workspace
+- `resource-dashboard.tsx` — cards, show more, next steps, profile tab
+- `product-primitives.tsx`, Thinking Orb, civic styling
+- Honest search-error vs no-match; external-source confirmation
+
+### Intake (ahead of FundPath)
+- Multi-input bundle API
+- Inferred / summarized tagging
+- Max-7 remaining-field follow-ups
+- Description never filled by dumping the upload
+
+### Platform & safety
+- Cloudflare Workers + OpenNext + `wrangler.jsonc` rate limits
+- D1 workspace persistence + local fallback
+- `src/lib/agents/*` instruction files as the model-policy home
+- Five-profile / adversarial fixtures: same pipeline, no hard-coded outputs
+
+### Post-rank enrichment (keep as a shell)
+- `listing-page.ts`, `listing-prefill.ts`, `opportunity-research-agent.ts`
+- Rank-before-enrich Grants.gov detail fetch
+- Research agents may **retrieve / extract / propose** only — never upgrade Skip → Pursue
 
 ### AI model
-- **Luna (`gpt-5.6-luna`) only** — replaces FundPath’s Claude Haiku for:
-  1. Profile / evidence extraction (already ours)
-  2. Explanation prose (port FundPath’s four-section prompt pattern)
-  3. Optional starter-kit narrative drafts (later phase)
-- Luna must **never** set eligibility, tiers, scores, deadlines, amounts, or upgrade a match
+- **Luna (`gpt-5.6-luna`) only**
+  1. Intake extraction (already V2)
+  2. Optional semantic downgrade (already V2)
+  3. FundPath-style explanation prose (new — four sections)
+  4. Later: starter-kit narrative drafts / Stage B wording pass
+- Never: eligibility, tiers, scores, deadlines, amounts, upgrades
 
 ---
 
-## 3. What we adopt from FundPath (backend brain)
+## 4. What we adopt from FundPath (backend brain)
 
 Port the **intelligence architecture**, not Angular and not Firebase.
 
-### Core pipeline (must port)
+### Target middle of the V2 search pipeline
 
 ```text
-Confirmed profile
-  → Expansion (industry → NAICS / agency prefixes / keywords)
-  → Retrieval over a local corpus (D1), not a free-roaming research agent
-  → EligibilityRules (deterministic tier ceilings + flags)
-  → Historical proof (USAspending-derived totals/examples)
-  → Scoring + ranking
-  → Sequencing (primary / alongside / off-route / non-grant over ~12 months)
-  → Stacking note (ask vs sum of ceilings)
-  → Abstention (zero strong federal stops → honest non-grant path)
-  → Luna explanations for kept stops only
-  → Persist route-shaped result for UI
+V2 today:
+  profile → buildSearchQueries → Grants/ALN/USA/SBIR adapters
+       → discover + match/score → semantic review → listing research pass → UI
+
+V2 + FundPath brain:
+  profile → Expansion (NAICS/agency/keywords)
+       → Retrieval over D1 corpus (+ live Grants merge as needed)
+       → EligibilityRules → Historical proof → Score → Sequence
+       → Stack → Abstain
+       → Luna explain (prose only)
+       → KEEP V2 listing scrape + prefill on returned stops
+       → UI gains timeline / alongside / off-route / non-grant / stacking
 ```
 
-### Pure TypeScript modules to port first (minimal rewrite)
+### Pure TS modules to port first
 
-| FundPath module | Purpose |
+| FundPath module | Purpose in our app |
 |---|---|
 | `eligibility.rules.ts` + constants | Hard gates + tier ceilings |
 | `tiering.helper.ts` | Tier order / reduce ceilings |
 | `scoring.helper.ts` | Weighted fit score |
-| `sequencing.helper.ts` | Timeline placements |
-| `stacking.helper.ts` | “Not in one award” honesty |
-| `abstention.helper.ts` | Case-5-style no-match |
-| `expansion.helper.ts` + constants | Profile → search vocabulary |
+| `sequencing.helper.ts` | primary / alongside / off-route / non-grant |
+| `stacking.helper.ts` | Ask vs sum of award ceilings |
+| `abstention.helper.ts` | Honest zero-federal + non-grant path |
+| `expansion.helper.ts` + constants | Profile → retrieval vocabulary |
 | `registration-timeline.helper.ts` | SAM/UEI countdown from close date |
-| `federal-programs.ts` / `utah-programs.ts` seeds | Curated SBIR + Utah + procurement pathways with provenance |
-| Extraction / explanation **prompts** | Retarget to Luna; keep post-validation in TS |
+| Federal + Utah curated seeds (w/ provenance) | SBIR/procurement/state fallback when APIs fail |
+| Explanation prompts | Retarget to Luna; keep validation in TS |
 
-### Thin adapters to rewrite for Cloudflare
+### Rewrite for Cloudflare (no paid Firebase)
 
-| FundPath piece | Our rewrite |
+| FundPath piece | Our substitute |
 |---|---|
-| Firestore `corpus` | D1 tables (`opportunities`, `awards`, `utah_resources`, `corpus_meta`) |
-| `RetrievalService` full collection scan | SQL prefilter + in-process score (Workers memory limits) |
-| `RouteBuilderService` | `src/lib/route-builder.ts` orchestrator called from `/api/opportunities/search` (or new `/api/route/build`) |
-| `ClaudeService` | Luna client (existing OpenAI Responses pattern) |
-| `onDocumentCreated` deepPass | Optional `waitUntil` second pass **or** explicit “Check for new” button (no Firebase triggers) |
-| Corpus sync schedule | Cloudflare Cron Worker + manual `triggerSync` API |
-| `seed/corpus.snapshot.json` (~4MB, ~1561 docs) | One-shot D1 import script (not loaded per request) |
+| Firestore `corpus` | D1 tables (`opportunities`, `awards`, `utah_resources`, `corpus_meta`) — aligns with V2 Stage B cron stores |
+| Full-collection retrieval | SQL prefilter + in-process score (Worker memory) |
+| `RouteBuilderService` | `src/lib/fundpath-brain/route-builder.ts` called from `opportunity-search.ts` |
+| `ClaudeService` | Existing Luna Responses client pattern |
+| Firestore deepPass trigger | Optional `waitUntil` or explicit “Check for new” — no Firebase |
+| `corpus.snapshot.json` (~4MB) | One-shot D1 import script |
+| Twilio / Resend / Firebase Auth | **Out of scope** (V2 Stage C/D already owns OAuth/email later) |
 
-### Do **not** port as dependencies
-- Angular frontend
-- Firebase Auth / Hosting / Functions / Storage
+### Do not port
+- Angular UI
+- Firebase Hosting/Functions/Auth/Storage
 - Anthropic SDK
-- Twilio SMS / WhatsApp
-- Resend email (defer; free tier later if needed)
-- Disk LLM cache
-- `minInstances: 1` warm functions (that is what costs money on Firebase)
+- SMS/WhatsApp
+- Paying to keep warm function instances
 
 ---
 
-## 4. Free-stack mapping
+## 5. Free-stack mapping
 
-| FundPath paid/heavy | Our free-leaning substitute | Notes |
+| Costly FundPath piece | Our path |
+|---|---|
+| Firebase Blaze + `minInstances: 1` | Cloudflare Workers (already) |
+| Firestore | D1 (extend existing or add corpus DB — decide in §13) |
+| Claude Haiku | Luna via current `OPENAI_API_KEY` |
+| Twilio / Resend | Defer to V2 Stage D; no new subscriptions now |
+| SF-424 Storage | Browser download or R2 free tier if Phase F approved |
+
+Luna still costs tokens. Prefer short prompts, batch explanations, deterministic template fallback when Luna is down (V2 already fail-closed in places).
+
+---
+
+## 6. Feature merge (V2 × FundPath)
+
+### Keep V2 (FundPath weaker)
+- File / URL / notes intake + claim tags + max-7 follow-ups
+- Rank-first Worker budget discipline
+- Listing Similar Opportunities scrape
+- Editable listing prefill in workspace
+- Downgrade-only semantic review
+- Stage roadmap B→D already decided
+
+### Add from FundPath (V2 missing or thinner)
+| Feature | Fits where | Phase |
 |---|---|---|
-| Firebase Blaze + warm Functions | Cloudflare Workers (already deployed) | Stay on current plan |
-| Firestore | D1 `WORKSPACE_DB` + new corpus tables | May need second D1 or same DB with migrations — decide in Phase 0 |
-| Claude Haiku | Luna via existing `OPENAI_API_KEY` | Only cost is OpenAI usage you already have |
-| Twilio SMS | **Out of scope** for this plan | Feature idea kept as “later / free channel TBD” |
-| Resend email | **Out of scope** for this plan | Same |
-| Firebase Storage (SF-424 PDF) | Cloudflare R2 free tier **or** return PDF bytes to browser | Only if SF-424 phase is approved |
-| Gov APIs | Same free public APIs | Grants.gov, USAspending; SBIR may 403 → seeds |
+| Sequenced route timeline | Results + workspace | E |
+| Alongside state/counseling/procurement stops | Results | E |
+| Off-route with reasons | Results | E |
+| Non-grant alternatives on abstention | Results (esp. consumer) | D-brain / E |
+| Stacking note | Results header | D-brain |
+| Richer historical proof (totals/median/named winners) | Card + workspace | D-brain |
+| Utah “who to call” directory | Next-steps panel | E |
+| Registration timeline (SAM backwards) | Workspace / apply kit | F |
+| Curated procurement pathways | Corpus seeds | C-corpus |
+| Starter kit + optional SF-424 | Workspace | F |
 
-**Money reality:** “Free” means no new SaaS. Luna/OpenAI still meters tokens. Prefer Haiku-equivalent prompt sizes; batch explanations; template fallback when Luna is down (already our pattern).
-
----
-
-## 5. Feature merge matrix
-
-### Keep ours (FundPath weaker or missing)
-- Multi-source intake (file / URL / text)
-- Founder field-by-field confirmation UX
-- Semantic review as **downgrade-only** (optional second Luna pass)
-- Opaque workspace credentials + D1 persistence
-- Explicit search-failure UI
-- Source role separation already in adapters
-
-### Add from FundPath (we are missing or weaker)
-| Feature | Why it matters | Phase |
-|---|---|---|
-| Sequenced **route timeline** (primary stops over months) | Turns a list into a plan | 3–4 |
-| **Alongside** state/counseling/procurement stops | Utah-specific value | 3 |
-| **Off-route** with reasons | Trust / honesty | 3 |
-| **Non-grant alternatives** on abstention | Case 5 / consumer honesty | 2–3 |
-| **Stacking note** | “$2M ask ≠ one award” | 2 |
-| Richer **historical proof** (totals, median, named winners) | Defensibility | 2 |
-| **Utah “who to call”** directory match | Actionability | 3 |
-| **Registration timeline** (SAM backwards from deadline) | Apply kit differentiator | 4 |
-| Curated **procurement pathways** (GSA, DIU CSO, Phase III, OTA) | Beyond grants-only | 2 (seeds) |
-| Application **starter kit** + optional SF-424 fill | Workspace upgrade | 4 |
-| Deepen / “check for new” second pass | Freshness without fake agents | 5 (optional) |
-
-### Explicitly defer (cost, P0, or AGENTS extras)
-- SMS / WhatsApp / email digests
-- OAuth / Google account linking
-- Public share links as a product (we already have workspace tokens)
-- Print-to-PDF chrome (nice-to-have)
-- Live research-agent fan-out to gov APIs per request (**rejected** — see §7)
+### Explicitly reject / defer
+- Free-roaming multi-agent “research swarm” as the matcher (V2 policies already say retrieve/propose only; FundPath matches that)
+- Padding UX to “at least 10 seconds”
+- SMS / email digests before Stage D
+- Reintroducing deleted `TWO_HOUR_*` / `HACKATHON_PLAN.md` as authority
 
 ---
 
-## 6. Target architecture (after adoption)
+## 7. What to replace vs preserve in code
 
-```text
-[Our UI]
-  intake (file/URL/text) → Luna extract → founder confirm
-        ↓
-[API] POST /api/opportunities/search  (or /api/route/build)
-        ↓
-[Ported FundPath brain on Cloudflare]
-  expand → retrieve(D1 corpus) → eligibility → historical
-  → score → sequence → stack → abstain
-  → Luna explain (prose only)
-        ↓
-[Response shaped for our UI]
-  recommendations + route timeline + off-route + non-grant
-  + stacking note + utah resources + provenance
-        ↓
-[Our workspace]
-  checklist / prefill / D1 save
-```
+### Preserve
+- `AGENTS.md`, `src/lib/agents/**`
+- `opportunity-workbench.tsx`, `resource-dashboard.tsx`, `product-primitives.tsx`
+- `src/lib/intake/**`, intake APIs
+- `listing-page.ts`, `listing-prefill.ts`, `opportunity-research-agent.ts`
+- `persistence/**`, workspace migrations
+- `sources/grants.ts`, `usaspending.ts`, `source-contracts.ts` (wrap/extend)
+- Deploy / wrangler / rate limits / fixture safety tests
 
-### Suggested new library layout (names illustrative)
+### Replace or heavily reshape (FundPath brain)
+- `opportunity-matching.ts` — eligibility + score + decisions
+- `opportunity-intelligence.ts` — route/sequencing/stacking/explanations
+- `concept-normalization.ts` + `buildSearchQueries` — lean on Expansion + corpus retrieval
+- Ranking core inside `opportunity-discovery.ts`
+- Parts of `opportunity-search.ts` orchestration (keep rank-before-enrich + research pass shell)
+- Reassess `opportunity-semantic-review.ts` as optional post-filter once FundPath tiers exist
 
+### Suggested new tree
 ```text
 src/lib/fundpath-brain/
-  eligibility.*
-  scoring.*
-  tiering.*
-  sequencing.*
-  stacking.*
-  abstention.*
-  expansion.*
-  retrieval.ts          # D1-backed
-  historical.ts
-  resources.ts
-  route-builder.ts      # orchestrator
-  explanation-luna.ts   # prose only
+  eligibility.*  scoring.*  tiering.*  sequencing.*
+  stacking.*  abstention.*  expansion.*
+  retrieval.ts  historical.ts  resources.ts
+  route-builder.ts  explanation-luna.ts
   registration-timeline.ts
 
 src/lib/corpus/
-  schema migrations
-  sync-grants.ts
-  sync-usaspending.ts
-  seed-federal.ts
-  seed-utah.ts
-  import-snapshot.ts
+  migrations + sync-grants.ts + sync-usaspending.ts
+  seed-federal.ts + seed-utah.ts + import-snapshot.ts
 ```
 
-Existing `opportunity-matching.ts` / `opportunity-discovery.ts` either:
-- **A (preferred):** become thin wrappers that call `route-builder`, or
-- **B:** get replaced after fixtures prove parity on the five cases.
-
-Do not run two conflicting brains in production.
+Feature-flag: `USE_FUNDPATH_BRAIN` until five fixtures pass.
 
 ---
 
-## 7. Planning corrections (so we don’t rebuild theater)
+## 8. Planning corrections (still true on V2)
 
 | Idea | Verdict |
 |---|---|
-| Profile JSON / structured fields | **Keep** — correct |
-| Multi-input + confirm missing fields | **Keep** — better than FundPath |
-| Research agent with 3–5 sub-agents hitting live APIs | **Do not build as core** — flaky, costly, hard to keep honest |
-| “Must take ≥10 seconds” | **No** — show real progress; FundPath takes ~30–40s when work is real |
-| Luna decides eligibility | **Forbidden** (ours + FundPath) |
-| Pre-built corpus + deterministic rules | **Adopt** — this is their winning backend shape |
+| Structured profile + confirm missing fields | **Keep** — V2 already does this well |
+| Multi-input intake | **Keep** — better than FundPath |
+| Research agent as free matcher with 3–5 sub-agents | **Do not** — V2 correctly bounds research; FundPath uses corpus + rules |
+| Luna decides eligibility | **Forbidden** |
+| Pre-built corpus + deterministic rules | **Adopt** — this is the FundPath win; aligns with V2 Stage B stores |
 
 ---
 
-## 8. Phased execution plan
+## 9. Phased execution (relative to V2 stages)
 
-Spend planning time **before** coding each phase. Between phases: write a short `context-phase-N.md` (done / next / risks). Before an agent starts a phase: require a **2-line** restatement of what it will build.
+Work on top of **`post-hackathon-v2`** (merge or branch from it — not from stale `main` docs). Between phases: short context note (done / next / risks). Before an agent starts: **2-line** restatement of what it will build.
 
-### Phase 0 — Agreement & inventory (no product code)
-- Approve this plan vs `AGENTS.md` “no new architecture without agreement”
-- Inventory D1 capacity; decide corpus tables in existing DB vs new binding
-- License/check: porting TypeScript logic inspired by a public hackathon repo (attribution in README)
-- Freeze: UI shell stays; no Angular
+### Phase 0 — Agreement
+- Confirm this plan vs V2 `AGENTS.md`
+- Decide: land after PR #9 merges, or stack on `post-hackathon-v2` now
+- Answer §13 open decisions
+- Attribution note for FundPath inspiration (README)
 
-**Exit:** Written yes/no on scope; D1 schema sketch
+**Exit:** Written approval + branch strategy
 
-### Phase 1 — Corpus spine (parallelizable with Phase 2 scaffolding)
-- D1 migrations: opportunities, awards, utah_resources, corpus_meta
-- Import FundPath `corpus.snapshot.json` (timestamp conversion)
+### Phase A — Stay out of the way of PR #9
+- Do not regress Stage A intake/orb/listing/prefill
+- No UI redesign while Stage A is landing
+
+**Exit:** PR #9 merged or explicitly used as base
+
+### Phase B-corpus — Corpus spine (pairs with V2 Stage B)
+- D1 migrations for opportunities / awards / utah_resources / corpus_meta
+- Import FundPath snapshot (timestamp conversion)
 - Seed federal + Utah curated programs with provenance
-- Manual sync scripts for Grants.gov + USAspending (cron later)
-- Read-only corpus health endpoint for operators
+- Manual sync scripts; cron later (V2 Stage B)
 
-**Exit:** D1 has ≥ posted/forecasted opportunities; seed programs present; import reproducible
+**Exit:** Reproducible corpus; health check endpoint
 
-### Phase 2 — Deterministic brain (the FundPath core)
+### Phase C-brain — Deterministic FundPath core
 - Port eligibility / scoring / tiering / sequencing / stacking / abstention / expansion
-- Wire `route-builder` behind search API using **confirmed** `CompanyProfile` (map our fields ↔ their `IStartupProfile`)
-- Historical helper over D1 awards
-- Unit tests ported/adapted (especially Case 5 abstention + municipal-prime warn)
-- Run five official fixtures through new brain; no profile-specific hardcodes
+- Map V2 confirmed profile → brain profile fields
+- Wire `route-builder` behind search under feature flag
+- Port/adapt unit tests; Case-5-style abstention + municipal-prime warn
+- Run five official fixtures + adversarial holdouts
 
-**Exit:** Five fixtures produce defensible routes; consumer abstains with non-grant alts; Luna unused for tiers
+**Exit:** Flag-on search returns sequenced routes; Luna unused for tiers; fixtures green
 
-### Phase 3 — UI mapping (keep our design language)
-- Map route-builder output into workbench / dashboard without a full redesign
-- Show: verdict line, primary timeline, alongside, off-route reasons, non-grant alts, stacking note, historical proof, Utah contacts
-- Preserve Thinking Orbs / professional loading for extract + build
-- Keep error vs empty-match paths
+### Phase D-explain — Luna explanations + historical density
+- Four-section explanation prompts via Luna (fallback templates)
+- Historical helper over D1 awards on primary stops
+- Keep V2 listing research pass on returned stops
 
-**Exit:** Browser walkthrough of healthcare + consumer cases on staging
+**Exit:** Cards show why-fit / ineligible / verify / next + proof blocks
 
-### Phase 4 — Application depth (FundPath apply kit, our workspace)
-- Registration timeline helper into workspace / per-opportunity panel
-- Starter-kit document checklist + deterministic portal hints
-- Optional: SF-424 PDF fill via `pdf-lib` + browser download or R2 (no Firebase)
-- Luna only for narrative *drafts*, clearly labeled as drafts
+### Phase E-ui — Present the route without redesigning the product
+- Map brain output into workbench/dashboard: verdict, timeline, alongside, off-route, non-grant, stacking, Utah contacts
+- Preserve orb + civic language
+- Preserve error vs empty-match
 
-**Exit:** One opportunity → actionable timeline + checklist; SF-424 optional stretch
+**Exit:** Browser pass: healthcare route + consumer abstention on staging
 
-### Phase 5 — Sync & deepen (optional)
-- Cloudflare Cron corpus sync
-- Optional second-pass deepen (`waitUntil` or button) — not a multi-agent research swarm
-- Still no SMS/email unless free path is approved separately
+### Phase F-apply — Application depth (optional stretch)
+- Registration timeline into workspace
+- Starter-kit checklist + portal hints
+- Optional SF-424 via `pdf-lib` + browser/R2 download
+- Luna narrative drafts labeled as drafts only
 
-**Exit:** Corpus freshness story without paid messaging
+**Exit:** One stop → actionable timeline + checklist
 
-### Parallelism (after Phase 0)
-| Track A | Track B |
+### Phase G — Align with V2 C/D (later, separate approvals)
+- OAuth (V2 C), messaging/settings/help (V2 D) — **not** part of FundPath port
+- Procurement SAM beyond curated seeds — only when Stage D starts
+
+### Parallelism after Phase 0 / A
+| Track 1 | Track 2 |
 |---|---|
-| Corpus import + sync scripts | Pure TS rules port + tests |
+| Corpus import + sync | Pure TS rules + tests |
 | D1 schema | Profile field mapping |
 | Later: cron | Later: UI route presentation |
 
-One agent builds; a second fixes bugs — same as FundPath’s operating style.
+One agent builds; a second bugfixes.
 
 ---
 
-## 9. Profile mapping (ours → brain)
+## 10. Profile mapping (V2 confirmed → brain)
 
-Our confirmed profile already has the right *idea* (structured JSON). Map carefully:
-
-| Our field (approx) | Brain needs |
+| V2 field / tag | Brain use |
 |---|---|
-| description / researchActivities / technology | keywords, `hasRdCore` |
-| industry | vertical slug → NAICS / agencies |
-| location | Utah/geography filters |
-| employees | SBIR size rule |
-| capitalNeed / revenue / capitalRaised | ask band, commercial framing |
+| `summarized` description | Expansion keywords; never raw evidence dump |
+| industry / technology / researchActivities | vertical, NAICS, `hasRdCore` |
+| location | geography / Utah resources |
+| employees | SBIR size |
+| capitalNeed / capitalRaised / revenue (`inferred` ok if founder-confirmed) | ask band |
 | applicantType / ownership / usEntityStatus | eligibility flags |
-| samStatus / uei | registration timeline / info flags |
+| samStatus / uei | registration timeline |
 | useOfFunds / productStage | sequencing / non-grant hints |
 
-Luna extraction stays on intake. The brain consumes **founder-confirmed** values, not raw model guesses, whenever the UI has collected confirmation.
+Prefer **founder-confirmed** values at search time. Keep `inferred` / `summarized` visible in UI.
 
 ---
 
-## 10. Safety & regression gates
+## 11. Safety & regression gates
 
-Must remain true after adoption:
-1. Same pipeline for all five official profiles — no hard-coded outputs
-2. Government facts carry source id, URL, retrieval time (or curated provenance block)
-3. Luna never creates/upgrades eligibility, scores, dates, amounts
-4. Unknown critical eligibility caps at Potential Fit / equivalent tier
-5. Current opportunities ≠ historical awards
-6. Search failure ≠ honest no-match
-7. Unsupported application fields stay blank → founder questions
-8. No direct government form submission
-9. No secrets in client / prompts / logs / commits
-10. Existing matching regression fixtures (manufacturing false positives) still pass or are re-expressed against the new brain
+Must remain true:
+1. Same pipeline for all official profiles — no hard-coded outputs  
+2. Official facts carry source id, URL, retrieval time (or curated provenance)  
+3. Luna/research never create/upgrade eligibility, scores, dates, amounts  
+4. Unknown critical eligibility → Potential Fit (or FundPath equivalent cap)  
+5. Current opportunities ≠ historical awards  
+6. Search failure ≠ honest no-match  
+7. Unsupported application fields stay blank  
+8. No direct government form submission  
+9. No secrets in client / prompts / logs / commits  
+10. Manufacturing false-positive regressions still hold or are re-expressed against the new brain  
+11. V2 Stage A intake/listing behavior does not regress  
 
 ---
 
-## 11. What “done” looks like
+## 12. Done looks like
 
-**P0 done when:**
-- Our UI intake (file/URL/text) → confirm → FundPath-style route result
-- Deterministic eligibility/sequencing/abstention live on Cloudflare
-- Luna used only for extract + explain
+**Core done when:**
+- V2 UI intake → confirm → FundPath-style sequenced route on Cloudflare
+- Deterministic eligibility / sequencing / abstention live
+- Luna only extract / downgrade / explain
 - Five fixtures + consumer abstention verified
-- No new paid SaaS wired
+- Listing scrape + prefill still run on returned stops
+- No new paid SaaS
 
-**Nice-to-have after:**
-- Starter kit + registration timeline + SF-424 download
-- Cron sync + deepen pass
-- Messaging (only if free)
+**Stretch:** registration timeline, starter kit, SF-424 download  
 
----
-
-## 12. Rollback
-
-- Feature-flag `USE_FUNDPATH_BRAIN` (or route-level switch) default off until Phase 2 exit criteria pass
-- Keep previous `opportunity-matching.ts` path callable until flag removal
-- D1 corpus migrations are additive; dropping the flag returns list-style recommendations without timeline fields
+**Not this plan:** OAuth, SMS, email digests, settings, help chat
 
 ---
 
-## 13. Open decisions (need your call before code)
+## 13. Open decisions (answer before code)
 
-1. **Replace** current matching brain entirely, or run FundPath brain behind a flag until parity?
-2. Corpus in **existing** `WORKSPACE_DB` vs **new** D1 database?
-3. Is Phase 4 SF-424 in scope for the next build, or stop at timeline + checklist?
-4. Utah-only resource directory vs national-neutral copy when location ≠ Utah?
-5. Attribution line in README for FundPath / AI Builder Day inspiration — yes/no?
+1. Base implementation branch: wait for PR #9 merge to `main`, or branch from `post-hackathon-v2` now?  
+2. Replace matching behind `USE_FUNDPATH_BRAIN` until parity, or cut over immediately after fixtures?  
+3. Corpus tables in existing `WORKSPACE_DB` vs new D1 database?  
+4. Is Phase F (SF-424) in the next build, or stop after timeline + checklist?  
+5. Utah-only “who to call” vs neutral copy when location ≠ Utah?  
+6. README attribution to FundPath / AI Builder Day — yes/no?  
 
 ---
 
 ## 14. Immediate next step
 
-Reply with approval (and answers to §13). Then start **Phase 0 + Phase 1** only — no UI redesign, no SMS, no Firebase, no Anthropic.
+Approve this plan (and answer §13). Then:
+1. Ensure work bases on **`post-hackathon-v2` / merged Stage A**  
+2. Start **Phase B-corpus + Phase C-brain** only  
+3. Do not resurrect `TWO_HOUR_RELEASE_PLAN.md` or treat it as authority  
+
+---
+
+## 15. Rollback
+
+- Feature-flag off → previous V2 matching path  
+- Additive D1 corpus migrations  
+- UI timeline fields optional until flag on  
