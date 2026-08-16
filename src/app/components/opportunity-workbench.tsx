@@ -1549,7 +1549,7 @@ export default function OpportunityWorkbench() {
 
                   <div className="mt-5">
                     <label
-                      className="grid cursor-pointer place-items-center rounded-xl border border-dashed border-[#0968d8]/35 bg-[#f5f8fc] px-5 py-6 text-center transition hover:border-[#0968d8]"
+                      className="relative grid cursor-pointer place-items-center overflow-hidden rounded-xl border border-dashed border-[#0968d8]/35 bg-[#f5f8fc] px-5 py-6 text-center transition hover:border-[#0968d8]"
                       onDragOver={(event) => {
                         event.preventDefault();
                       }}
@@ -1562,7 +1562,7 @@ export default function OpportunityWorkbench() {
                         type="file"
                         multiple
                         accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx"
-                        className="sr-only"
+                        className="absolute inset-0 z-10 cursor-pointer opacity-0"
                         onChange={handleDocuments}
                         disabled={uploadedFiles.length >= 5}
                       />

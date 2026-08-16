@@ -125,17 +125,17 @@ a {
 
 .intake-hero-copy::before {
   position: absolute;
-  inset: -3.25rem -4.5rem -3.5rem -4rem;
+  inset: -4rem -5.5rem -4.5rem -7.5rem;
   z-index: -1;
   content: "";
   pointer-events: none;
   background: radial-gradient(
-    ellipse at 38% 45%,
+    ellipse 36% 48% at 38% 46%,
     rgba(247, 241, 229, 0.99) 0%,
-    rgba(247, 241, 229, 0.96) 38%,
-    rgba(247, 241, 229, 0.82) 56%,
-    rgba(247, 241, 229, 0.36) 72%,
-    rgba(247, 241, 229, 0) 86%
+    rgba(247, 241, 229, 0.95) 34%,
+    rgba(247, 241, 229, 0.72) 58%,
+    rgba(247, 241, 229, 0.22) 82%,
+    rgba(247, 241, 229, 0) 100%
   );
 }
 
@@ -1035,7 +1035,7 @@ h2,
 
 /* Editorial surface language: restrained corners and hierarchy across every stage. */
 .app-shell button,
-.app-shell input:not([type="checkbox"]):not([type="radio"]),
+.app-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .app-shell textarea,
 .app-shell select,
 .app-shell details {
@@ -1066,10 +1066,20 @@ h2,
   letter-spacing: -0.01em !important;
 }
 
-.app-shell input:not([type="checkbox"]):not([type="radio"]),
+.app-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .app-shell textarea,
 .app-shell select {
   background-color: #fffdf8 !important;
+}
+
+.app-shell input[type="file"] {
+  appearance: none;
+  background-color: transparent !important;
+  border-radius: 0 !important;
+}
+
+.app-shell input[type="file"]::file-selector-button {
+  display: none;
 }
 
 .app-shell h1,
